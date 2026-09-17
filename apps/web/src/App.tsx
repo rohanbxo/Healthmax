@@ -1,9 +1,33 @@
-// Placeholder shell. M6 replaces this with the router, providers and routes.
-export function App() {
+/**
+ * Composition root for the web client (SPEC.md §11).
+ *
+ * QueryClientProvider -> AuthProvider -> ToastProvider -> router, with the
+ * toast viewport rendered next to the router so it floats above the tab bar.
+ */
+import * as React from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter } from 'react-router-dom';
+import { ToastProvider, Toaster } from '@/components/ui';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { createQueryClient } from '@/api/queryClient';
+import { AuthProvider } from '@/auth/AuthProvider';
+import { AppRoutes } from '@/routes';
+
+const queryClient = createQueryClient();
+
+export function App(): React.ReactElement {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-[480px] flex-col items-center justify-center gap-2 px-4">
-      <p className="section-label text-muted">BETA</p>
-      <h1 className="text-2xl font-semibold">Scaffold ready</h1>
-    </main>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ToastProvider>
+            <BrowserRouter>
+              <AppRoutes />
+            </BrowserRouter>
+            <Toaster />
+          </ToastProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
