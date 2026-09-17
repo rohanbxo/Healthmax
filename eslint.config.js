@@ -128,5 +128,10 @@ export default tseslint.config(
     files: ['apps/web/**/*.{ts,tsx}'],
     languageOptions: { globals: { ...globals.browser, ...globals.serviceworker } },
   },
+  {
+    // Developer CLIs in scripts/ report progress on stdout — that is their job.
+    files: ['scripts/**/*.{js,mjs,cjs,ts}'],
+    rules: { 'no-console': 'off' },
+  },
   prettier,
 );

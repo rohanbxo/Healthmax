@@ -13,3 +13,4 @@ test-results/
 junit.xml
 apps/api/src/generated/
 dist-types/
+*.tsbuildinfo
