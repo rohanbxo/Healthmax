@@ -1,0 +1,140 @@
+// Database schema — transcribed from SPEC.md §8.
+// Every query on user-owned data is scoped by userId in the repository layer.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LogStatus {
+  done
+  skipped
+}
+
+enum ReminderStatus {
+  pending
+  sent
+  cancelled
+  failed
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique // stored lowercased
+  passwordHash String
+  name         String   @db.VarChar(60)
+  timeZone     String
+  weekStart    Int      @default(1)
+  onboarded    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  habits       Habit[]
+  logs         Log[]
+  refreshTokens RefreshToken[]
+  pushSubscriptions PushSubscription[]
+  reminders    ReminderOccurrence[]
+  passwordResets PasswordResetToken[]
+}
+
+model RefreshToken {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  familyId     String    @db.Uuid // all rotations of one login share a family
+  tokenHash    String    @unique // SHA-256 of the raw token
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?   @db.Uuid
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+model Habit {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @db.Uuid
+  name          String    @db.VarChar(60)
+  schedule      Json // validated with zod on every read and write
+  time          String    @db.VarChar(5)
+  remind        Boolean   @default(true)
+  createdDayKey String    @db.VarChar(10)
+  archived      Boolean   @default(false)
+  order         Int       @default(0)
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs          Log[]
+  snooze        Snooze?
+  reminders     ReminderOccurrence[]
+
+  @@index([userId, deletedAt, archived])
+}
+
+model Log {
+  habitId   String    @db.Uuid
+  userId    String    @db.Uuid // denormalized for fast range queries
+  dayKey    String    @db.VarChar(10)
+  status    LogStatus
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  habit     Habit     @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([habitId, dayKey])
+  @@index([userId, dayKey])
+}
+
+model Snooze {
+  habitId String   @id @db.Uuid
+  userId  String   @db.Uuid
+  dayKey  String   @db.VarChar(10)
+  until   DateTime
+  habit   Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+}
+
+model PushSubscription {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @db.Uuid
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?
+  failureCount  Int       @default(0)
+  lastSuccessAt DateTime?
+  createdAt     DateTime  @default(now())
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ReminderOccurrence {
+  id        String         @id @default(uuid()) @db.Uuid
+  userId    String         @db.Uuid
+  habitId   String         @db.Uuid
+  dayKey    String         @db.VarChar(10)
+  fireAt    DateTime
+  status    ReminderStatus @default(pending)
+  sentAt    DateTime?
+  createdAt DateTime       @default(now())
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habit     Habit          @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, dayKey])
+  @@index([status, fireAt])
+  @@index([userId, status])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

@@ -1,3 +1,165 @@
-// Process entry point. M3 replaces this with createApp(deps) + ROLE handling
-// (SPEC.md §3, §10).
-export {};
+/**
+ * Process entry point (SPEC.md §3, §10 "Worker process").
+ *
+ * Builds the real dependencies, then starts the HTTP server, the worker, or
+ * both, according to `ROLE`. This is the only file that constructs a Prisma or
+ * Redis client.
+ */
+import type { Server } from 'node:http';
+import { PrismaClient } from '@prisma/client';
+import { Redis } from 'ioredis';
+import type { Logger } from 'pino';
+
+import { createApp, type AppDeps } from './app';
+import { ConfigError, loadConfig, type Config } from './config';
+import { createLogger } from './http/logger';
+import { SystemClock } from './lib/clock';
+import { ResendMailer, type MailMessage, type Mailer } from './lib/mailer';
+import { WebPushSender, type PushResult, type PushSender } from './lib/pushSender';
+import { InProcessEventBus } from './events/bus';
+import { BullQueues, queueConnection, type Queues } from './jobs/queues';
+
+/** Email is configured from M10 (SPEC.md §14); until then, refuse loudly. */
+function createMailer(config: Config, logger: Logger): Mailer {
+  if (config.RESEND_API_KEY && config.EMAIL_FROM) {
+    return new ResendMailer(config.RESEND_API_KEY, config.EMAIL_FROM);
+  }
+  logger.warn('RESEND_API_KEY/EMAIL_FROM are not set — outbound email is disabled.');
+  return {
+    async send(msg: MailMessage): Promise<void> {
+      throw new Error(`Email is not configured; refusing to send "${msg.subject}".`);
+    },
+  };
+}
+
+/** VAPID keys are generated before M9 (SPEC.md §14). */
+function createPushSender(config: Config, logger: Logger): PushSender {
+  const { VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT } = config;
+  if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY && VAPID_SUBJECT) {
+    return new WebPushSender({
+      subject: VAPID_SUBJECT,
+      publicKey: VAPID_PUBLIC_KEY,
+      privateKey: VAPID_PRIVATE_KEY,
+    });
+  }
+  logger.warn('VAPID_* keys are not set — Web Push is disabled.');
+  return {
+    async send(): Promise<PushResult> {
+      return { status: 'failed', reason: 'push is not configured' };
+    },
+  };
+}
+
+type Runtime = {
+  config: Config;
+  logger: Logger;
+  prisma: PrismaClient;
+  redis: Redis;
+  queues: Queues;
+  deps: AppDeps;
+};
+
+function buildRuntime(config: Config): Runtime {
+  const logger = createLogger(config);
+  const prisma = new PrismaClient({ datasourceUrl: config.DATABASE_URL });
+  const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null });
+  const queues: Queues = new BullQueues(queueConnection(config.REDIS_URL));
+  const eventBus = new InProcessEventBus((error, event) => {
+    logger.error({ err: error, event: event.type, userId: event.userId }, 'Domain event handler failed');
+  });
+
+  // M9 subscribes the reminder scheduler to the bus here.
+
+  return {
+    config,
+    logger,
+    prisma,
+    redis,
+    queues,
+    deps: {
+      prisma,
+      redis,
+      queues,
+      clock: new SystemClock(),
+      eventBus,
+      mailer: createMailer(config, logger),
+      pushSender: createPushSender(config, logger),
+      config,
+      logger,
+    },
+  };
+}
+
+/** Closes each resource once, in dependency order, tolerating failures. */
+async function shutdown(runtime: Runtime, httpServer: Server | undefined, signal: string): Promise<void> {
+  const { logger } = runtime;
+  logger.info({ signal }, 'Shutting down');
+
+  if (httpServer) {
+    await new Promise<void>((resolve) => {
+      httpServer.close(() => {
+        resolve();
+      });
+    });
+  }
+
+  const closers: [string, () => Promise<unknown>][] = [
+    ['queues', () => runtime.queues.close()],
+    ['prisma', () => runtime.prisma.$disconnect()],
+    ['redis', () => runtime.redis.quit()],
+  ];
+  for (const [name, close] of closers) {
+    try {
+      await close();
+    } catch (err) {
+      logger.error({ err, resource: name }, 'Failed to close resource cleanly');
+    }
+  }
+  logger.info('Shutdown complete');
+}
+
+export async function main(): Promise<void> {
+  let config: Config;
+  try {
+    config = loadConfig(process.env);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      // The logger needs a valid config, so this one goes straight to stderr.
+      console.error(err.message);
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
+  }
+
+  const runtime = buildRuntime(config);
+  const { logger } = runtime;
+  let httpServer: Server | undefined;
+
+  if (config.ROLE === 'api' || config.ROLE === 'all') {
+    const app = createApp(runtime.deps);
+    httpServer = app.listen(config.PORT, () => {
+      logger.info({ port: config.PORT, role: config.ROLE, env: config.NODE_ENV }, 'API listening');
+    });
+  }
+
+  if (config.ROLE === 'worker' || config.ROLE === 'all') {
+    // M9 starts reschedule-user, dispatch-reminders and extend-windows here.
+    logger.info({ role: config.ROLE }, 'Worker role selected; workers arrive in M9');
+  }
+
+  let shuttingDown = false;
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      void shutdown(runtime, httpServer, signal).then(() => {
+        process.exit(0);
+      });
+    });
+  }
+}
+
+if (require.main === module) {
+  void main();
+}

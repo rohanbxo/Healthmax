@@ -55,6 +55,63 @@ jobs:
             apps/web/coverage
           if-no-files-found: ignore
 
+  test-api:
+    name: API tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: beta
+          POSTGRES_PASSWORD: beta
+          POSTGRES_DB: beta_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U beta -d beta_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      ROLE: api
+      APP_URL: http://localhost:5173
+      # The suite only ever touches DATABASE_URL_TEST; both point at the
+      # throwaway service container here (SPEC.md §13).
+      DATABASE_URL: postgresql://beta:beta@localhost:5432/beta_test?schema=public
+      DATABASE_URL_TEST: postgresql://beta:beta@localhost:5432/beta_test?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-secret-at-least-32-characters-long
+      LOG_LEVEL: silent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @beta/core build
+      - run: pnpm --filter @beta/api exec prisma migrate deploy
+      - run: pnpm --filter @beta/api test:ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-api
+          path: apps/api/test-results/junit.xml
+          if-no-files-found: warn
+
   audit:
     name: Dependency audit (report only)
     runs-on: ubuntu-latest

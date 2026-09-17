@@ -1,0 +1,107 @@
+/**
+ * Job queues (SPEC.md §10). Thin on purpose: M3 only needs the seam so services
+ * can enqueue work and tests can assert on it. The workers themselves land in
+ * M9 (`reschedule-user`, `dispatch-reminders`, `extend-windows`) and M10
+ * (`send-email`).
+ */
+import { Queue, type ConnectionOptions } from 'bullmq';
+
+export const QUEUE_NAMES = {
+  rescheduleUser: 'reschedule-user',
+  sendEmail: 'send-email',
+} as const;
+
+/**
+ * A burst of taps must collapse into one job, so the reschedule job is keyed by
+ * user and delayed 2 seconds (SPEC.md §10 step 2).
+ */
+export const RESCHEDULE_DEBOUNCE_MS = 2_000;
+
+export const rescheduleJobId = (userId: string): string => `reschedule:${userId}`;
+
+export type RescheduleUserJob = { userId: string };
+
+export type SendEmailJob = {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+};
+
+export interface Queues {
+  rescheduleUser(userId: string): Promise<void>;
+  sendEmail(payload: SendEmailJob): Promise<void>;
+  /** Releases the underlying connections. Called on shutdown. */
+  close(): Promise<void>;
+}
+
+/** BullMQ-backed queues. Owns its Redis connections and closes them. */
+export class BullQueues implements Queues {
+  private readonly reschedule: Queue<RescheduleUserJob>;
+  private readonly email: Queue<SendEmailJob>;
+
+  constructor(connection: ConnectionOptions) {
+    const defaultJobOptions = {
+      removeOnComplete: { age: 3_600, count: 1_000 },
+      removeOnFail: { age: 24 * 3_600 },
+    };
+    this.reschedule = new Queue<RescheduleUserJob>(QUEUE_NAMES.rescheduleUser, {
+      connection,
+      defaultJobOptions,
+    });
+    this.email = new Queue<SendEmailJob>(QUEUE_NAMES.sendEmail, {
+      connection,
+      defaultJobOptions: { ...defaultJobOptions, attempts: 3, backoff: { type: 'exponential', delay: 5_000 } },
+    });
+  }
+
+  async rescheduleUser(userId: string): Promise<void> {
+    await this.reschedule.add(
+      QUEUE_NAMES.rescheduleUser,
+      { userId },
+      { jobId: rescheduleJobId(userId), delay: RESCHEDULE_DEBOUNCE_MS },
+    );
+  }
+
+  async sendEmail(payload: SendEmailJob): Promise<void> {
+    await this.email.add(QUEUE_NAMES.sendEmail, payload);
+  }
+
+  async close(): Promise<void> {
+    await Promise.all([this.reschedule.close(), this.email.close()]);
+  }
+}
+
+/** Builds the BullMQ connection options for a Redis URL. */
+export function queueConnection(redisUrl: string): ConnectionOptions {
+  // BullMQ blocks on Redis, so retries must be unlimited.
+  return { url: redisUrl, maxRetriesPerRequest: null };
+}
+
+/** Test double: records enqueued jobs instead of touching Redis. */
+export class FakeQueues implements Queues {
+  readonly rescheduled: string[] = [];
+  readonly emails: SendEmailJob[] = [];
+
+  async rescheduleUser(userId: string): Promise<void> {
+    this.rescheduled.push(userId);
+  }
+
+  async sendEmail(payload: SendEmailJob): Promise<void> {
+    this.emails.push(payload);
+  }
+
+  async close(): Promise<void> {
+    // Nothing to release.
+  }
+
+  /** Distinct users scheduled — the deduplication BullMQ would do by `jobId`. */
+  uniqueRescheduled(): string[] {
+    return [...new Set(this.rescheduled)];
+  }
+
+  reset(): void {
+    this.rescheduled.length = 0;
+    this.emails.length = 0;
+  }
+}
