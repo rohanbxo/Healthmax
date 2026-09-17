@@ -29,6 +29,10 @@ import { createDocsRouter } from './http/openapi';
 import { createHealthRouter, HEALTH_PATH } from './modules/health/routes';
 import { AUTH_PATH, createAuthRouter } from './modules/auth/routes';
 import { createMeRouter, ME_PATH } from './modules/me/routes';
+import { createHabitsRouter, HABITS_PATH } from './modules/habits/routes';
+import { createLogsRouter } from './modules/logs/routes';
+import { createSnoozesRouter } from './modules/snoozes/routes';
+import { createTodayRouter, TODAY_PATH } from './modules/today/routes';
 import './http/types';
 
 export type AppDeps = {
@@ -125,7 +129,21 @@ export function createApp(deps: AppDeps): Express {
       eventBus: deps.eventBus,
     }),
   );
-  // M5 mounts habits, logs, snoozes and today.
+  const dataDeps = {
+    prisma: deps.prisma,
+    clock: deps.clock,
+    config: deps.config,
+    eventBus: deps.eventBus,
+  };
+  api.use(HABITS_PATH, createHabitsRouter(dataDeps));
+  // Logs and snoozes hang off `/habits/:id`, and `/logs` is a range query, so
+  // both routers spell out their full paths from the `/api` root.
+  api.use(createLogsRouter(dataDeps));
+  api.use(createSnoozesRouter(dataDeps));
+  api.use(
+    TODAY_PATH,
+    createTodayRouter({ prisma: deps.prisma, clock: deps.clock, config: deps.config }),
+  );
   app.use(API_BASE_PATH, api);
 
   app.use(notFoundHandler());

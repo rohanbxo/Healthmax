@@ -19,3 +19,12 @@ export function toDbInstant(ms: number): Date {
 export function fromDbInstant(d: Date): number {
   return d.getTime();
 }
+
+/**
+ * Epoch milliseconds → the ISO-8601 instant the wire format uses
+ * (`instantSchema` in `packages/core`, e.g. `SnoozeDTO.until` and
+ * `TodayDTO.serverNow`). Always UTC, so it carries no server timezone.
+ */
+export function toIsoInstant(ms: number): string {
+  return toDbInstant(ms).toISOString();
+}
