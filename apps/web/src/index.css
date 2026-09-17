@@ -1,0 +1,96 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens — SPEC.md §4 "cinematic precision".
+ * These are the only place raw hex values are allowed. Components use the
+ * generated utilities (bg-card, text-muted, border-border, ...) or the
+ * var(--color-*) CSS variables that shadcn/ui-style components read.
+ */
+@theme {
+  --color-base: #000000;
+  --color-card: #1c1c1e;
+  --color-raised: #2c2c2e;
+  --color-border: #3a3a3c;
+  --color-accent: #ffb340;
+  --color-text: #eee0d3;
+  --color-muted: #8e8e93;
+  --color-success: #30d158;
+  --color-danger: #ff453a;
+
+  --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+
+  --radius-card: 16px;
+  --radius-control: 12px;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+
+    /* shadcn/ui-compatible aliases, mapped onto the Beta palette. */
+    --background: var(--color-base);
+    --foreground: var(--color-text);
+    --card: var(--color-card);
+    --card-foreground: var(--color-text);
+    --popover: var(--color-card);
+    --popover-foreground: var(--color-text);
+    --primary: var(--color-accent);
+    --primary-foreground: var(--color-base);
+    --secondary: var(--color-raised);
+    --secondary-foreground: var(--color-text);
+    --muted: var(--color-raised);
+    --muted-foreground: var(--color-muted);
+    --destructive: var(--color-danger);
+    --destructive-foreground: var(--color-base);
+    --border: var(--color-border);
+    --input: var(--color-border);
+    --ring: var(--color-accent);
+  }
+
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-base);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior-y: none;
+  }
+
+  /* Every interactive element keeps a visible focus ring (SPEC.md §4). */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+}
+
+@utility section-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+@utility tap-target {
+  min-width: 44px;
+  min-height: 44px;
+}

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.vite/
+.turbo/
+test-results/
+junit.xml
+apps/api/src/generated/
+dist-types/

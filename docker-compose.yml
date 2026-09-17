@@ -1,0 +1,110 @@
+name: beta
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: beta
+      POSTGRES_PASSWORD: beta
+      POSTGRES_DB: beta
+    ports:
+      - '5432:5432'
+    volumes:
+      - beta_pgdata:/var/lib/postgresql/data
+      - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U beta -d beta']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - beta_redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    command: pnpm --filter @beta/api dev
+    environment:
+      NODE_ENV: development
+      ROLE: api
+      PORT: '3000'
+      DATABASE_URL: postgresql://beta:beta@postgres:5432/beta?schema=public
+      DATABASE_URL_TEST: postgresql://beta:beta@postgres:5432/beta_test?schema=public
+      REDIS_URL: redis://redis:6379
+      APP_URL: http://localhost:5173
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./apps:/app/apps
+      - ./packages:/app/packages
+      - beta_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    command: pnpm --filter @beta/api dev
+    environment:
+      NODE_ENV: development
+      ROLE: worker
+      DATABASE_URL: postgresql://beta:beta@postgres:5432/beta?schema=public
+      REDIS_URL: redis://redis:6379
+      APP_URL: http://localhost:5173
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./apps:/app/apps
+      - ./packages:/app/packages
+      - beta_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    command: pnpm --filter @beta/web dev
+    environment:
+      VITE_API_PROXY_TARGET: http://api:3000
+    ports:
+      - '5173:5173'
+    volumes:
+      - ./apps:/app/apps
+      - ./packages:/app/packages
+      - beta_node_modules:/app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  beta_pgdata:
+  beta_redisdata:
+  beta_node_modules:
