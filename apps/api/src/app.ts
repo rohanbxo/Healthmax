@@ -27,6 +27,8 @@ import { globalRateLimit } from './http/rateLimit';
 import { notFoundHandler } from './http/notFound';
 import { createDocsRouter } from './http/openapi';
 import { createHealthRouter, HEALTH_PATH } from './modules/health/routes';
+import { AUTH_PATH, createAuthRouter } from './modules/auth/routes';
+import { createMeRouter, ME_PATH } from './modules/me/routes';
 import './http/types';
 
 export type AppDeps = {
@@ -104,7 +106,26 @@ export function createApp(deps: AppDeps): Express {
   const api = express.Router();
   api.use(createHealthRouter({ prisma: deps.prisma, redis: deps.redis, clock: deps.clock }));
   api.use(createDocsRouter(deps.config));
-  // M4 mounts auth and /me; M5 mounts habits, logs, snoozes, today.
+  api.use(
+    AUTH_PATH,
+    createAuthRouter({
+      prisma: deps.prisma,
+      redis: deps.redis,
+      clock: deps.clock,
+      config: deps.config,
+      queues: deps.queues,
+    }),
+  );
+  api.use(
+    ME_PATH,
+    createMeRouter({
+      prisma: deps.prisma,
+      clock: deps.clock,
+      config: deps.config,
+      eventBus: deps.eventBus,
+    }),
+  );
+  // M5 mounts habits, logs, snoozes and today.
   app.use(API_BASE_PATH, api);
 
   app.use(notFoundHandler());
