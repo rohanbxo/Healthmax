@@ -11,7 +11,7 @@
  * `signInMswUser` and `failNextRefresh` are the knobs tests turn.
  */
 import { HttpResponse, delay, http } from 'msw';
-import type { ApiErrorCode, MeDTO, TodayDTO } from '@beta/core';
+import type { ApiErrorCode, HabitDTO, LogStatus, MeDTO, TodayDTO } from '@beta/core';
 
 export const VALID_PASSWORD = 'correct-horse-battery';
 export const USER_ID = '0b6a6d8c-2f1a-4c3e-9b7a-1d2e3f4a5b6c';
@@ -59,6 +59,21 @@ export type MswState = {
   /** Force login to answer 401 whatever the password. */
   loginFails: boolean;
   tokenSeq: number;
+  /** M7: what `GET /today` serves. `null` keeps the M6 empty default. */
+  today: TodayDTO | null;
+  /** M7: what `GET /habits` serves, and what the habit writes mutate. */
+  habits: HabitDTO[];
+  /** M7: every write the client made, oldest first — the undo assertions read this. */
+  requests: RecordedRequest[];
+  habitSeq: number;
+};
+
+/** One write the client sent, as the tests want to assert on it. */
+export type RecordedRequest = {
+  method: string;
+  /** Path without the `/api` prefix, e.g. '/habits/abc/logs/2026-09-17'. */
+  path: string;
+  body: unknown;
 };
 
 function initialState(): MswState {
@@ -77,6 +92,10 @@ function initialState(): MswState {
     refreshFails: false,
     loginFails: false,
     tokenSeq: 0,
+    today: null,
+    habits: [],
+    requests: [],
+    habitSeq: 0,
   };
 }
 
@@ -84,6 +103,66 @@ export const mswState: MswState = initialState();
 
 export function resetMswState(): void {
   Object.assign(mswState, initialState());
+}
+
+/** Serve a fixture from `GET /today` (M7). */
+export function setMswToday(today: TodayDTO): void {
+  mswState.today = today;
+}
+
+/** Serve a fixture from `GET /habits` (M7). */
+export function setMswHabits(habits: HabitDTO[]): void {
+  mswState.habits = habits;
+}
+
+/** Every write the client sent, in order. */
+export function recordedRequests(): RecordedRequest[] {
+  return mswState.requests;
+}
+
+function record(request: Request, body: unknown): void {
+  const { pathname } = new URL(request.url);
+  mswState.requests.push({
+    method: request.method,
+    path: pathname.replace(/^\/api/, ''),
+    body,
+  });
+}
+
+/**
+ * The log and snooze writes mutate the served `/today` fixture, so the refetch
+ * `onSettled` triggers agrees with the optimistic patch instead of undoing it.
+ */
+function applyLogWrite(habitId: string, dayKey: string, status: LogStatus | null): void {
+  const today = mswState.today;
+  if (today === null) return;
+
+  today.logs = today.logs.filter((log) => log.habitId !== habitId || log.dayKey !== dayKey);
+  if (status !== null) {
+    today.logs.push({ habitId, dayKey, status });
+    // SPEC §6: completing or skipping clears that day's snooze.
+    today.snoozes = today.snoozes.filter((snooze) => snooze.habitId !== habitId);
+  }
+}
+
+function applySnoozeWrite(habitId: string, minutes: number | null): void {
+  const today = mswState.today;
+  if (today === null) return;
+
+  today.snoozes = today.snoozes.filter((snooze) => snooze.habitId !== habitId);
+  if (minutes !== null) {
+    today.snoozes.push({
+      habitId,
+      dayKey: today.dayKey,
+      until: new Date(Date.now() + minutes * 60_000).toISOString(),
+    });
+  }
+}
+
+async function recordJson(request: Request): Promise<unknown> {
+  const body: unknown = await request.json();
+  record(request, body);
+  return body;
 }
 
 /** Give the browser a refresh cookie: refresh and protected routes now work. */
@@ -233,13 +312,94 @@ export const handlers = [
     mswState.todayCalls += 1;
     const denied = requireBearer(request);
     if (denied) return denied;
+    if (mswState.today !== null) return HttpResponse.json(mswState.today);
     const timeZone = mswState.session?.me.timeZone;
     return HttpResponse.json(timeZone ? makeToday({ timeZone }) : makeToday());
   }),
 
+  /* ------------------------------------------------- M7: habits and logs */
+
   http.get('/api/habits', ({ request }) => {
     const denied = requireBearer(request);
     if (denied) return denied;
-    return HttpResponse.json([]);
+    return HttpResponse.json(mswState.habits);
+  }),
+
+  http.post('/api/habits', async ({ request }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    const body = (await recordJson(request)) as Partial<HabitDTO>;
+    mswState.habitSeq += 1;
+
+    const habit: HabitDTO = {
+      id: `00000000-0000-4000-8000-${String(mswState.habitSeq).padStart(12, '0')}`,
+      name: body.name ?? 'Untitled',
+      schedule: body.schedule ?? { kind: 'daily' },
+      time: body.time ?? '07:30',
+      remind: body.remind ?? true,
+      createdDayKey: mswState.today?.dayKey ?? '2026-09-17',
+      archived: false,
+      order: mswState.habits.length,
+    };
+    mswState.habits.push(habit);
+    return HttpResponse.json(habit, { status: 201 });
+  }),
+
+  http.patch('/api/habits/:id', async ({ request, params }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    const body = (await recordJson(request)) as Partial<HabitDTO>;
+    const habit = mswState.habits.find((candidate) => candidate.id === params.id);
+    if (!habit) return apiError('NOT_FOUND', 'Unknown habit');
+
+    Object.assign(habit, body);
+    return HttpResponse.json(habit);
+  }),
+
+  http.delete('/api/habits/:id', ({ request, params }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    record(request, null);
+    mswState.habits = mswState.habits.filter((candidate) => candidate.id !== params.id);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.put('/api/habits/:id/logs/:dayKey', async ({ request, params }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    const body = (await recordJson(request)) as { status: LogStatus };
+    applyLogWrite(String(params.id), String(params.dayKey), body.status);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete('/api/habits/:id/logs/:dayKey', ({ request, params }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    record(request, null);
+    applyLogWrite(String(params.id), String(params.dayKey), null);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.put('/api/habits/:id/snooze', async ({ request, params }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    const body = (await recordJson(request)) as { minutes: number };
+    applySnoozeWrite(String(params.id), body.minutes);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete('/api/habits/:id/snooze', ({ request, params }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    record(request, null);
+    applySnoozeWrite(String(params.id), null);
+    return new HttpResponse(null, { status: 204 });
   }),
 ];
