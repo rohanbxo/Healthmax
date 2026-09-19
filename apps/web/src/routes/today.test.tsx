@@ -202,9 +202,18 @@ describe('Today', () => {
     const clock = installFixedClock();
     try {
       signIn(fullFixture());
+      let writeSent = false;
       server.use(
+        // Hold every `/today` read after the write, so the refetch `onSettled`
+        // triggers can never land. The row can then only come back through the
+        // `onError` rollback — without this, the refetch alone restores it and
+        // the test passes with the rollback deleted.
+        http.get('/api/today', async () => {
+          if (writeSent) await delay('infinite');
+        }),
         // The delay keeps the optimistic state observable before the rollback.
         http.put('/api/habits/:id/logs/:dayKey', async () => {
+          writeSent = true;
           await delay(50);
           return HttpResponse.json(
             { error: { code: 'INTERNAL', message: 'Something went wrong.', details: [] } },

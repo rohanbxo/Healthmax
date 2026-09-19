@@ -41,7 +41,11 @@ function repoPath(...segments: string[]): string {
   return path.join(REPO_ROOT, ...segments);
 }
 
+/** One instance for the whole file, so the flat config is loaded exactly once. */
 let eslint: ESLint;
+
+/** Explicit, so a slow config load never depends on Vitest's default hook timeout. */
+const WARM_UP_TIMEOUT_MS = 30_000;
 
 beforeAll(async () => {
   eslint = new ESLint({
@@ -55,7 +59,7 @@ beforeAll(async () => {
   // one-off cost can exceed a single test's budget on a busy machine. Paying it
   // here keeps it out of whichever test happens to run first.
   await eslint.lintText('', { filePath: NORMAL_FILE, warnIgnored: false });
-}, 60_000);
+}, WARM_UP_TIMEOUT_MS);
 
 /** Messages a fixture produces for one rule. */
 async function messagesFor(code: string, filePath: string, ruleId: string): Promise<string[]> {
