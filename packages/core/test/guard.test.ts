@@ -43,14 +43,19 @@ function repoPath(...segments: string[]): string {
 
 let eslint: ESLint;
 
-beforeAll(() => {
+beforeAll(async () => {
   eslint = new ESLint({
     cwd: REPO_ROOT,
     overrideConfigFile: repoPath('eslint.config.js'),
     // Fixtures are virtual files; never let a cached result stand in for them.
     cache: false,
   });
-});
+
+  // The first `lintText` is what loads and compiles the flat config, and that
+  // one-off cost can exceed a single test's budget on a busy machine. Paying it
+  // here keeps it out of whichever test happens to run first.
+  await eslint.lintText('', { filePath: NORMAL_FILE, warnIgnored: false });
+}, 60_000);
 
 /** Messages a fixture produces for one rule. */
 async function messagesFor(code: string, filePath: string, ruleId: string): Promise<string[]> {
