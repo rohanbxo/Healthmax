@@ -12,6 +12,8 @@ export const queryKeys = {
   /** Prefix for every range — what the optimistic mutations invalidate (SPEC.md §11). */
   statsAll: () => ['stats'] as const,
   logs: (from: DayKey, to: DayKey, habitId?: string) => ['logs', from, to, habitId] as const,
+  /** Prefix for every log range — what a log write invalidates. */
+  logsAll: () => ['logs'] as const,
 } as const;
 
 export type QueryKeys = typeof queryKeys;

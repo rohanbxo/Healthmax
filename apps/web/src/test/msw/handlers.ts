@@ -11,7 +11,15 @@
  * `signInMswUser` and `failNextRefresh` are the knobs tests turn.
  */
 import { HttpResponse, delay, http } from 'msw';
-import type { ApiErrorCode, HabitDTO, LogStatus, MeDTO, TodayDTO } from '@beta/core';
+import type {
+  ApiErrorCode,
+  HabitDTO,
+  LogDTO,
+  LogStatus,
+  MeDTO,
+  StatsDTO,
+  TodayDTO,
+} from '@beta/core';
 
 export const VALID_PASSWORD = 'correct-horse-battery';
 export const USER_ID = '0b6a6d8c-2f1a-4c3e-9b7a-1d2e3f4a5b6c';
@@ -66,6 +74,12 @@ export type MswState = {
   /** M7: every write the client made, oldest first — the undo assertions read this. */
   requests: RecordedRequest[];
   habitSeq: number;
+  /** M8: what `GET /logs` filters by range; the log writes mutate it too. */
+  logs: LogDTO[];
+  /** M8: what `GET /stats` serves, per range. A missing range answers 404. */
+  stats: Partial<Record<number, StatsDTO>>;
+  /** M8: every `range` `GET /stats` was asked for, in order. */
+  statsRanges: number[];
 };
 
 /** One write the client sent, as the tests want to assert on it. */
@@ -96,6 +110,9 @@ function initialState(): MswState {
     habits: [],
     requests: [],
     habitSeq: 0,
+    logs: [],
+    stats: {},
+    statsRanges: [],
   };
 }
 
@@ -113,6 +130,16 @@ export function setMswToday(today: TodayDTO): void {
 /** Serve a fixture from `GET /habits` (M7). */
 export function setMswHabits(habits: HabitDTO[]): void {
   mswState.habits = habits;
+}
+
+/** Serve these logs from `GET /logs` (M8). */
+export function setMswLogs(logs: LogDTO[]): void {
+  mswState.logs = logs;
+}
+
+/** Serve a fixture from `GET /stats?range=` (M8). */
+export function setMswStats(stats: StatsDTO): void {
+  mswState.stats[stats.range] = stats;
 }
 
 /** Every write the client sent, in order. */
@@ -134,6 +161,9 @@ function record(request: Request, body: unknown): void {
  * `onSettled` triggers agrees with the optimistic patch instead of undoing it.
  */
 function applyLogWrite(habitId: string, dayKey: string, status: LogStatus | null): void {
+  mswState.logs = mswState.logs.filter((log) => log.habitId !== habitId || log.dayKey !== dayKey);
+  if (status !== null) mswState.logs.push({ habitId, dayKey, status });
+
   const today = mswState.today;
   if (today === null) return;
 
@@ -401,5 +431,29 @@ export const handlers = [
     record(request, null);
     applySnoozeWrite(String(params.id), null);
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  /* ------------------------------------------------ M8: calendar and stats */
+
+  http.get('/api/logs', ({ request }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    const url = new URL(request.url);
+    const from = url.searchParams.get('from') ?? '';
+    const to = url.searchParams.get('to') ?? '';
+    // 'YYYY-MM-DD' compares as a calendar day.
+    return HttpResponse.json(mswState.logs.filter((log) => log.dayKey >= from && log.dayKey <= to));
+  }),
+
+  http.get('/api/stats', ({ request }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    const range = Number(new URL(request.url).searchParams.get('range') ?? '30');
+    mswState.statsRanges.push(range);
+    const stats = mswState.stats[range];
+    if (stats === undefined) return apiError('NOT_FOUND', `No stats fixture for range ${range}`);
+    return HttpResponse.json(stats);
   }),
 ];

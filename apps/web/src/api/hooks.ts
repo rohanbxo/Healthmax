@@ -36,8 +36,10 @@ import {
   MS_PER_SECOND,
   addMinutes,
   authDtoSchema,
+  compareDayKeys,
   habitDtoSchema,
   instantToLocalParts,
+  logDtoSchema,
   meDtoSchema,
   statsDtoSchema,
   todayDtoSchema,
@@ -50,6 +52,7 @@ import { queryKeys } from './keys';
 const TODAY_STALE_TIME = 30_000;
 
 const habitListSchema = habitDtoSchema.array();
+const logListSchema = logDtoSchema.array();
 
 /* ------------------------------------------------------------------- reads */
 
@@ -74,6 +77,15 @@ export function useHabits(): UseQueryResult<HabitDTO[], ApiError> {
   return useQuery<HabitDTO[], ApiError>({
     queryKey: queryKeys.habits(),
     queryFn: ({ signal }) => apiFetch<HabitDTO[]>('/habits', { schema: habitListSchema, signal }),
+  });
+}
+
+/** `GET /logs` for an inclusive day range (SPEC.md §9; at most 400 days). */
+export function useLogs(from: DayKey, to: DayKey): UseQueryResult<LogDTO[], ApiError> {
+  return useQuery<LogDTO[], ApiError>({
+    queryKey: queryKeys.logs(from, to),
+    queryFn: ({ signal }) =>
+      apiFetch<LogDTO[]>('/logs', { query: { from, to }, schema: logListSchema, signal }),
   });
 }
 
@@ -151,6 +163,8 @@ function useHabitInvalidation(): () => void {
     void queryClient.invalidateQueries({ queryKey: queryKeys.today() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.habits() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.statsAll() });
+    // Deleting a habit hides its logs from every range (SPEC.md §8).
+    void queryClient.invalidateQueries({ queryKey: queryKeys.logsAll() });
   }, [queryClient]);
 }
 
@@ -257,6 +271,8 @@ function useOptimisticToday<TVariables>(options: {
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.today() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.statsAll() });
+      // The Calendar may hold today in a cached range.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.logsAll() });
     },
   });
 }
@@ -331,5 +347,76 @@ export function useClearSnooze(): UseMutationResult<
     mutationFn: ({ habitId }) => apiFetch<void>(`/habits/${habitId}/snooze`, { method: 'DELETE' }),
     patch: (today, variables) => ({ ...today, snoozes: withoutSnooze(today.snoozes, variables) }),
     errorMessage: 'We could not clear that snooze.',
+  });
+}
+
+/* ------------------------------------------------ calendar backfill (M8) */
+
+/** `status: null` clears the day's log. */
+export type DayLogVariables = TodayTarget & { status: LogStatus | null };
+
+type LogsSnapshot = { snapshot: [readonly unknown[], LogDTO[] | undefined][] };
+
+/** Whether a cached `['logs', from, to]` range contains `dayKey`. */
+function rangeCovers(key: readonly unknown[], dayKey: DayKey): boolean {
+  const [, from, to] = key;
+  if (typeof from !== 'string' || typeof to !== 'string') return false;
+  return compareDayKeys(from, dayKey) <= 0 && compareDayKeys(dayKey, to) <= 0;
+}
+
+/**
+ * Sets or clears one day's log from the Calendar's Day view (SPEC.md §6
+ * "Backfill", §11). Optimistic like the Today path, but over every cached log
+ * range that contains the day — Month and Year hold different ranges, and both
+ * must move together. `onError` puts each range back; `onSettled` lets the
+ * server have the last word on logs, Today and Stats.
+ */
+export function useDayLogMutation(): UseMutationResult<
+  void,
+  ApiError,
+  DayLogVariables,
+  LogsSnapshot
+> {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation<void, ApiError, DayLogVariables, LogsSnapshot>({
+    mutationFn: ({ habitId, dayKey, status }) =>
+      status === null
+        ? apiFetch<void>(`/habits/${habitId}/logs/${dayKey}`, { method: 'DELETE' })
+        : apiFetch<void>(`/habits/${habitId}/logs/${dayKey}`, { method: 'PUT', body: { status } }),
+
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.logsAll() });
+
+      const snapshot = queryClient.getQueriesData<LogDTO[]>({ queryKey: queryKeys.logsAll() });
+      for (const [key, logs] of snapshot) {
+        if (logs === undefined || !rangeCovers(key, variables.dayKey)) continue;
+        const rest = withoutLog(logs, variables);
+        queryClient.setQueryData<LogDTO[]>(
+          key,
+          variables.status === null
+            ? rest
+            : [
+                ...rest,
+                { habitId: variables.habitId, dayKey: variables.dayKey, status: variables.status },
+              ],
+        );
+      }
+      return { snapshot };
+    },
+
+    onError: (error, _variables, context) => {
+      for (const [key, logs] of context?.snapshot ?? []) {
+        queryClient.setQueryData(key, logs);
+      }
+      toast({ title: 'We could not save that day.', description: error.message, variant: 'error' });
+    },
+
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.logsAll() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.today() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.statsAll() });
+    },
   });
 }
