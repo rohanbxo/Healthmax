@@ -19,12 +19,7 @@ import { AppRoutes } from '@/routes';
 import { TICK_INTERVAL_MS } from '@/components/useNowTick';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { FIXED_DAY_KEY, FIXED_NOW_MS, FIXED_TIME_ZONE, installFixedClock } from '@/test/clock';
-import {
-  makeToday,
-  mswState,
-  setMswToday,
-  signInMswUser,
-} from '@/test/msw/handlers';
+import { makeToday, mswState, setMswToday, signInMswUser } from '@/test/msw/handlers';
 import { server } from '@/test/msw/server';
 
 /* ------------------------------------------------------------- fixtures */
@@ -88,6 +83,33 @@ function sectionFor(label: string): HTMLElement {
   return section;
 }
 
+const LOG_PATH = '/api/habits/:id/logs/:dayKey';
+const SNOOZE_PATH = '/api/habits/:id/snooze';
+
+/**
+ * Fails one write with a 500 and holds every `/today` read after it, so the
+ * refetch `onSettled` triggers can never land. The row can then only come back
+ * through the `onError` rollback — without the hold, the refetch alone restores
+ * it and a rollback test passes with the rollback deleted.
+ */
+function failWriteAndHoldToday(method: 'put' | 'delete', path: string): void {
+  let writeSent = false;
+  server.use(
+    http.get('/api/today', async () => {
+      if (writeSent) await delay('infinite');
+    }),
+    // The delay keeps the optimistic state observable before the rollback.
+    http[method](path, async () => {
+      writeSent = true;
+      await delay(50);
+      return HttpResponse.json(
+        { error: { code: 'INTERNAL', message: 'Something went wrong.', details: [] } },
+        { status: 500 },
+      );
+    }),
+  );
+}
+
 async function expandFinished(user: ReturnType<typeof renderWithProviders>['user']): Promise<void> {
   await user.click(screen.getByRole('button', { expanded: false }));
 }
@@ -124,7 +146,9 @@ describe('Today', () => {
       const overdue = sectionFor('OVERDUE');
       expect(within(overdue).getByText('Meditate')).toBeInTheDocument();
       expect(within(overdue).getByText('06:30 · 42 min late')).toBeInTheDocument();
-      expect(within(overdue).getByRole('button', { name: 'Complete Meditate' })).toBeInTheDocument();
+      expect(
+        within(overdue).getByRole('button', { name: 'Complete Meditate' }),
+      ).toBeInTheDocument();
 
       // 4. Snoozed.
       const snoozed = sectionFor('SNOOZED');
@@ -202,25 +226,7 @@ describe('Today', () => {
     const clock = installFixedClock();
     try {
       signIn(fullFixture());
-      let writeSent = false;
-      server.use(
-        // Hold every `/today` read after the write, so the refetch `onSettled`
-        // triggers can never land. The row can then only come back through the
-        // `onError` rollback — without this, the refetch alone restores it and
-        // the test passes with the rollback deleted.
-        http.get('/api/today', async () => {
-          if (writeSent) await delay('infinite');
-        }),
-        // The delay keeps the optimistic state observable before the rollback.
-        http.put('/api/habits/:id/logs/:dayKey', async () => {
-          writeSent = true;
-          await delay(50);
-          return HttpResponse.json(
-            { error: { code: 'INTERNAL', message: 'Something went wrong.', details: [] } },
-            { status: 500 },
-          );
-        }),
-      );
+      failWriteAndHoldToday('put', LOG_PATH);
 
       const { user } = renderWithProviders(<AppRoutes />);
       await screen.findByText('NEXT UP');
@@ -231,6 +237,101 @@ describe('Today', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent('We could not save that.');
       await waitFor(() => expect(screen.getByText('DONE & SKIPPED · 2')).toBeInTheDocument());
       expect(screen.getByText('Read')).toBeInTheDocument();
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('rolls a skip back when the server rejects it', async () => {
+    const clock = installFixedClock();
+    try {
+      signIn(fullFixture());
+      failWriteAndHoldToday('put', LOG_PATH);
+
+      const { user } = renderWithProviders(<AppRoutes />);
+      await screen.findByText('NEXT UP');
+
+      await user.click(screen.getByRole('button', { name: 'Skip Meditate' }));
+      expect(screen.getByText('DONE & SKIPPED · 3')).toBeInTheDocument();
+      expect(screen.queryByText('OVERDUE')).not.toBeInTheDocument();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('We could not save that.');
+      await waitFor(() => expect(screen.getByText('DONE & SKIPPED · 2')).toBeInTheDocument());
+      expect(within(sectionFor('OVERDUE')).getByText('Meditate')).toBeInTheDocument();
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('rolls a cleared log back when the server rejects the clear', async () => {
+    const clock = installFixedClock();
+    try {
+      signIn(fullFixture());
+      failWriteAndHoldToday('delete', LOG_PATH);
+
+      const { user } = renderWithProviders(<AppRoutes />);
+      await screen.findByText('DONE & SKIPPED · 2');
+      await expandFinished(user);
+
+      await user.click(screen.getByRole('button', { name: 'Clear Cold shower' }));
+      // Cleared, the 06:00 habit is overdue again.
+      expect(screen.getByText('DONE & SKIPPED · 1')).toBeInTheDocument();
+      expect(within(sectionFor('OVERDUE')).getByText('Cold shower')).toBeInTheDocument();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('We could not undo that.');
+      await waitFor(() => expect(screen.getByText('DONE & SKIPPED · 2')).toBeInTheDocument());
+      expect(within(sectionFor('OVERDUE')).queryByText('Cold shower')).not.toBeInTheDocument();
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('rolls a snooze back when the server rejects it', async () => {
+    const clock = installFixedClock();
+    try {
+      signIn(fullFixture());
+      failWriteAndHoldToday('put', SNOOZE_PATH);
+
+      const { user } = renderWithProviders(<AppRoutes />);
+      await screen.findByText('NEXT UP');
+
+      await user.click(screen.getByRole('button', { name: 'Snooze Meditate' }));
+      expect(within(sectionFor('SNOOZED')).getByText('Meditate')).toBeInTheDocument();
+      expect(screen.queryByText('OVERDUE')).not.toBeInTheDocument();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('We could not snooze that.');
+      await waitFor(() =>
+        expect(within(sectionFor('OVERDUE')).getByText('Meditate')).toBeInTheDocument(),
+      );
+      expect(within(sectionFor('SNOOZED')).queryByText('Meditate')).not.toBeInTheDocument();
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('rolls an undo back when the server rejects the inverse request', async () => {
+    const clock = installFixedClock();
+    try {
+      signIn(fullFixture());
+      const { user } = renderWithProviders(<AppRoutes />);
+      await screen.findByText('NEXT UP');
+
+      // The completion itself succeeds; only the undo that follows fails.
+      await user.click(screen.getByRole('button', { name: 'Complete' }));
+      await waitFor(() =>
+        expect(mswState.requests).toContainEqual({
+          method: 'PUT',
+          path: `/habits/${READ.id}/logs/${FIXED_DAY_KEY}`,
+          body: { status: 'done' },
+        }),
+      );
+      failWriteAndHoldToday('delete', LOG_PATH);
+
+      await user.click(await screen.findByRole('button', { name: 'UNDO' }));
+      expect(screen.getByText('DONE & SKIPPED · 2')).toBeInTheDocument();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('We could not undo that.');
+      await waitFor(() => expect(screen.getByText('DONE & SKIPPED · 3')).toBeInTheDocument());
     } finally {
       clock.restore();
     }
@@ -335,9 +436,9 @@ describe('Today', () => {
         }),
       );
       // The long press must not also fire the 15-minute default.
-      expect(
-        mswState.requests.filter((request) => request.path.endsWith('/snooze')),
-      ).toHaveLength(1);
+      expect(mswState.requests.filter((request) => request.path.endsWith('/snooze'))).toHaveLength(
+        1,
+      );
     } finally {
       clock.restore();
     }

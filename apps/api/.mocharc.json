@@ -1,5 +1,6 @@
 {
   "extension": ["ts"],
+  "require": ["./test/timezone.cjs"],
   "timeout": 10000,
   "exit": true,
   "spec": ["test/**/*.test.ts"]
