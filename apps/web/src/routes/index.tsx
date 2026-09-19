@@ -7,7 +7,8 @@
  *   development   /dev/time-check
  *   fallback      *
  *
- * `/habits/new` and `/habits/:id` are modal routes M7 adds on top of the shell.
+ * `/habits/new` and `/habits/:id` render a sheet on top of a live Today, so the
+ * screen behind the modal keeps ticking.
  * Exported separately from `App` so tests can mount it inside a `MemoryRouter`.
  */
 import * as React from 'react';
@@ -19,7 +20,10 @@ import { RegisterRoute } from './register';
 import { ForgotRoute } from './forgot';
 import { ResetRoute } from './reset';
 import { OnboardingRoute } from './onboarding';
-import { CalendarRoute, SettingsRoute, StatsRoute, TodayRoute } from './placeholders';
+import { CalendarRoute, SettingsRoute, StatsRoute } from './placeholders';
+import { TodayRoute } from './today';
+import { HabitNewRoute } from './habits/new';
+import { HabitEditRoute } from './habits/edit';
 import { TimeCheckRoute } from './time-check';
 import { NotFoundRoute } from './not-found';
 
@@ -38,6 +42,25 @@ export function AppRoutes(): React.ReactElement {
 
         <Route element={<AppShell />}>
           <Route index element={<TodayRoute />} />
+          {/* Modal routes: the sheet renders on top of a live Today (SPEC §11). */}
+          <Route
+            path="/habits/new"
+            element={
+              <>
+                <TodayRoute />
+                <HabitNewRoute />
+              </>
+            }
+          />
+          <Route
+            path="/habits/:id"
+            element={
+              <>
+                <TodayRoute />
+                <HabitEditRoute />
+              </>
+            }
+          />
           <Route path="/calendar" element={<CalendarRoute />} />
           <Route path="/stats" element={<StatsRoute />} />
           <Route path="/settings" element={<SettingsRoute />} />

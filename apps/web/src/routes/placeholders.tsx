@@ -1,5 +1,5 @@
 /**
- * Placeholders for the four authenticated screens that later milestones own
+ * Placeholders for the authenticated screens that later milestones own
  * (SPEC.md §15). They exist so the shell, the tab bar and the guards can be
  * exercised end to end; none of them implements its milestone's behaviour.
  *
@@ -13,21 +13,6 @@ import { Button, SectionLabel } from '@/components/ui';
 import { useLogout } from '@/api/hooks';
 import { useAuth } from '@/auth/AuthProvider';
 import { LOGIN_PATH } from '@/auth/RequireAuth';
-
-export function TodayRoute(): React.ReactElement {
-  return (
-    <MilestonePlaceholder
-      eyebrow="TODAY"
-      title="Today"
-      milestone="M7"
-      planned={[
-        'Live mono clock and date header, ticking every 30 seconds',
-        'Next up, Overdue, Snoozed, Later today, This week and Done & skipped sections',
-        'One-tap complete, skip and snooze with optimistic updates and an undo toast',
-      ]}
-    />
-  );
-}
 
 export function CalendarRoute(): React.ReactElement {
   return (
