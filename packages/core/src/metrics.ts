@@ -11,9 +11,18 @@
  * of its history — schedule changes are not versioned.
  */
 
-import type { DayKey, LogDTO, LogStatus, WeekStart } from './types';
+import type {
+  DayKey,
+  DayStatus,
+  HabitStatsDTO,
+  LogDTO,
+  LogStatus,
+  StatsDTO,
+  StatsRange,
+  WeekStart,
+} from './types';
 import { DAYS_PER_WEEK, addDays, compareDayKeys, weekStartKey } from './time';
-import { type HabitLike, isScheduledOn } from './rules';
+import { type HabitLike, isScheduledOn, statusOn } from './rules';
 
 /**
  * Hard stop for a backwards walk, in case a habit carries an absurd
@@ -282,4 +291,103 @@ export function overallAccuracy(args: {
     total.missed += counts.missed;
   }
   return ratio(total);
+}
+
+/* ------------------------------------------------------------ stats payload */
+
+/** The per-habit accuracy window and dot strip length (SPEC.md §9 `/stats`). */
+export const STATS_STRIP_DAYS = 30;
+
+/**
+ * The oldest day whose logs {@link buildStats} can read: the earliest
+ * `createdDayKey` among the counted habits, but never further back than
+ * {@link MAX_STREAK_LOOKBACK_DAYS}. Loading `[statsHistoryFrom, todayKey]` gives
+ * the streak walks everything they can reach, and nothing they cannot.
+ */
+export function statsHistoryFrom(habits: HabitLike[], todayKey: DayKey): DayKey {
+  let earliest = todayKey;
+  for (const habit of habits) {
+    if (habit.archived) continue;
+    const floor = walkFloor(habit, todayKey);
+    if (compareDayKeys(floor, earliest) < 0) earliest = floor;
+  }
+  return earliest;
+}
+
+/**
+ * `GET /stats` in one pure function (SPEC.md §9, §11 "Stats").
+ *
+ * - `overallAccuracy` pools every counted habit over the last `range` days.
+ * - Each habit gets its current and best streak, its 30-day accuracy, and the
+ *   last 30 days' statuses, oldest first, ending today.
+ *
+ * Archived habits are left out entirely: SPEC.md §6 says they are never
+ * counted. `logs` must cover `[statsHistoryFrom(habits, todayKey), todayKey]`.
+ *
+ * Today's dot is computed without the snooze, so a snoozed habit reads as
+ * `overdue` or `upcoming` here. That keeps the payload independent of snoozes,
+ * which do not affect stats (SPEC.md §6) and so do not invalidate its cache.
+ */
+export function buildStats(args: {
+  habits: (HabitLike & { id: string })[];
+  logs: LogDTO[];
+  todayKey: DayKey;
+  now: number;
+  tz: string;
+  weekStart: WeekStart;
+  range: StatsRange;
+}): StatsDTO {
+  const { logs, todayKey, now, tz, weekStart, range } = args;
+  const habits = args.habits.filter((habit) => !habit.archived);
+  const byHabit = indexLogsByHabit(logs);
+  const empty: LogIndex = new Map();
+  const stripFrom = addDays(todayKey, -(STATS_STRIP_DAYS - 1));
+  const currentWeek = weekStartKey(todayKey, weekStart);
+
+  const perHabit: HabitStatsDTO[] = habits.map((habit) => {
+    const index = byHabit.get(habit.id) ?? empty;
+    // Only today's `timesPerWeek` status reads the week's count; every other
+    // day resolves before `statusOn` looks at it.
+    const doneThisWeek = doneInWeek(index, currentWeek);
+
+    const last30: { dayKey: DayKey; status: DayStatus }[] = [];
+    for (let day = stripFrom; compareDayKeys(day, todayKey) <= 0; day = addDays(day, 1)) {
+      const status = index.get(day);
+      last30.push({
+        dayKey: day,
+        status: statusOn({
+          habit,
+          dayKey: day,
+          todayKey,
+          now,
+          tz,
+          weekStart,
+          log: status === undefined ? undefined : { habitId: habit.id, dayKey: day, status },
+          doneThisWeek,
+        }),
+      });
+    }
+
+    return {
+      habitId: habit.id,
+      currentStreak: currentStreak({ habit, logs, todayKey, weekStart }),
+      bestStreak: bestStreak({ habit, logs, todayKey, weekStart }),
+      accuracy30: ratio(accuracyCounts(habit, index, stripFrom, todayKey, todayKey, weekStart)),
+      last30,
+    };
+  });
+
+  return {
+    range,
+    dayKey: todayKey,
+    overallAccuracy: overallAccuracy({
+      habits,
+      logs,
+      from: addDays(todayKey, -(range - 1)),
+      to: todayKey,
+      todayKey,
+      weekStart,
+    }),
+    habits: perHabit,
+  };
 }
