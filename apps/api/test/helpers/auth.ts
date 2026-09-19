@@ -118,7 +118,11 @@ export function postRefresh(app: Express, token: string): request.Test {
  * Mints a syntactically perfect access token for an id that need not exist —
  * used to prove that an unknown or deleted owner reads as 404, not 403 or 500.
  */
-export function forgeAccessToken(secret: string, nowMs: number, userId = randomUUID()): string {
+export function forgeAccessToken(
+  secret: string,
+  nowMs: number,
+  userId: string = randomUUID(),
+): string {
   return signAccessToken({ userId, secret, nowMs });
 }
 

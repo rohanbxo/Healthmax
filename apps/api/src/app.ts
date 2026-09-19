@@ -33,6 +33,8 @@ import { createHabitsRouter, HABITS_PATH } from './modules/habits/routes';
 import { createLogsRouter } from './modules/logs/routes';
 import { createSnoozesRouter } from './modules/snoozes/routes';
 import { createTodayRouter, TODAY_PATH } from './modules/today/routes';
+import { createRedisStatsCache, type StatsCache } from './modules/stats/cache';
+import { createStatsRouter, STATS_PATH } from './modules/stats/routes';
 import './http/types';
 
 export type AppDeps = {
@@ -79,6 +81,19 @@ function contentSecurityPolicy(config: Config) {
       ...(config.NODE_ENV === 'production' ? { upgradeInsecureRequests: [] } : {}),
     },
   };
+}
+
+/**
+ * Drops a user's cached stats whenever something they are computed from moves
+ * (SPEC.md §9 "Stats cache"). `user.scheduleChanged` is included because a
+ * `weekStart` change regroups every `timesPerWeek` week; snoozes never affect
+ * stats (SPEC.md §6), so `snooze.changed` is not.
+ */
+function invalidateStatsOnChange(eventBus: EventBus, cache: StatsCache): void {
+  const drop = (event: { userId: string }) => cache.invalidate(event.userId);
+  eventBus.on('habit.changed', drop);
+  eventBus.on('log.changed', drop);
+  eventBus.on('user.scheduleChanged', drop);
 }
 
 /**
@@ -143,6 +158,17 @@ export function createApp(deps: AppDeps): Express {
   api.use(
     TODAY_PATH,
     createTodayRouter({ prisma: deps.prisma, clock: deps.clock, config: deps.config }),
+  );
+  const statsCache = createRedisStatsCache(deps.redis);
+  invalidateStatsOnChange(deps.eventBus, statsCache);
+  api.use(
+    STATS_PATH,
+    createStatsRouter({
+      prisma: deps.prisma,
+      clock: deps.clock,
+      config: deps.config,
+      cache: statsCache,
+    }),
   );
   app.use(API_BASE_PATH, api);
 
