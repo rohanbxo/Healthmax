@@ -1,0 +1,329 @@
+/**
+ * Calendar (SPEC.md §11 "Calendar", §6 "Backfill").
+ *
+ * Fixed clock: Thursday 2026-09-17 07:12 in Asia/Dubai, while the test process
+ * runs in America/Los_Angeles — where it is still Wednesday the 16th. Any cell
+ * that used the browser's zone would put "today" a day early.
+ */
+import { describe, expect, it } from 'vitest';
+import { screen, waitFor, within } from '@testing-library/react';
+import { HttpResponse, delay, http } from 'msw';
+import { type HabitDTO, type LogDTO, type WeekStart, weekday } from '@beta/core';
+import { AppRoutes } from '@/routes';
+import { renderWithProviders } from '@/test/renderWithProviders';
+import { FIXED_TIME_ZONE, installFixedClock } from '@/test/clock';
+import { mswState, setMswHabits, setMswLogs, signInMswUser } from '@/test/msw/handlers';
+import { server } from '@/test/msw/server';
+
+/* ------------------------------------------------------------- fixtures */
+
+function habit(n: number, name: string, extra: Partial<HabitDTO> = {}): HabitDTO {
+  return {
+    id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    name,
+    schedule: { kind: 'daily' },
+    time: '07:30',
+    remind: true,
+    createdDayKey: '2026-09-01',
+    archived: false,
+    order: n,
+    ...extra,
+  };
+}
+
+const READ = habit(1, 'Read');
+/** Monday, Wednesday, Friday. */
+const GYM = habit(2, 'Gym', { schedule: { kind: 'weekdays', days: [1, 3, 5] } });
+const WALK = habit(3, 'Walk', { schedule: { kind: 'timesPerWeek', count: 3 } });
+const OLD = habit(4, 'Old', { archived: true });
+
+/**
+ *   Sun 13  Read unlogged                  → 0 of 1
+ *   Mon 14  Read done, Gym done            → 2 of 2
+ *   Tue 15  Read skipped, Walk done        → 1 of 1 (the skip is left out)
+ *   Wed 16  Read done, Gym unlogged        → 1 of 2
+ *   Thu 17  today, Read unlogged           → 0 of 1
+ *   Fri 18  future
+ */
+const LOGS: LogDTO[] = [
+  { habitId: READ.id, dayKey: '2026-09-14', status: 'done' },
+  { habitId: GYM.id, dayKey: '2026-09-14', status: 'done' },
+  { habitId: READ.id, dayKey: '2026-09-15', status: 'skipped' },
+  { habitId: WALK.id, dayKey: '2026-09-15', status: 'done' },
+  { habitId: READ.id, dayKey: '2026-09-16', status: 'done' },
+  // An archived habit is never counted, whatever it logged.
+  { habitId: OLD.id, dayKey: '2026-09-13', status: 'done' },
+];
+
+function arrange(weekStart: WeekStart = 1) {
+  signInMswUser({ timeZone: FIXED_TIME_ZONE, weekStart });
+  setMswHabits([READ, GYM, WALK, OLD]);
+  setMswLogs(LOGS.map((log) => ({ ...log })));
+  return renderWithProviders(<AppRoutes />, { route: '/calendar' });
+}
+
+const cell = (name: string): HTMLElement => screen.getByRole('button', { name });
+
+/** The header renders at once; the grid only once habits and logs have loaded. */
+async function gridReady(): Promise<void> {
+  await screen.findByRole('button', { name: /^MON · 14 SEP:/ });
+}
+
+/** A cell's position among the grid's children, blanks included. */
+function column(element: HTMLElement): number {
+  return Array.from(element.parentElement?.children ?? []).indexOf(element);
+}
+
+/**
+ * Fails one log write with a 500 and holds every `/logs` read after it, so the
+ * refetch `onSettled` triggers can never land and only the rollback can put
+ * the day back.
+ */
+function failLogWriteAndHoldLogs(): void {
+  let writeSent = false;
+  server.use(
+    http.get('/api/logs', async () => {
+      if (writeSent) await delay('infinite');
+    }),
+    http.put('/api/habits/:id/logs/:dayKey', async () => {
+      writeSent = true;
+      await delay(50);
+      return HttpResponse.json(
+        { error: { code: 'INTERNAL', message: 'Something went wrong.', details: [] } },
+        { status: 500 },
+      );
+    }),
+  );
+}
+
+/* ------------------------------------------------------------ the tests */
+
+describe('Calendar', () => {
+  it('opens on Month and shades each day by done against due', async () => {
+    const clock = installFixedClock();
+    try {
+      arrange();
+
+      expect(await screen.findByText('SEP 2026')).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'Month' })).toHaveAttribute('data-state', 'on');
+      await gridReady();
+
+      expect(cell('MON · 14 SEP: 2 of 2 done')).toHaveAttribute('data-shade', 'full');
+      expect(cell('WED · 16 SEP: 1 of 2 done')).toHaveAttribute('data-shade', 'partial');
+      expect(cell('TUE · 15 SEP: 1 of 1 done')).toHaveAttribute('data-shade', 'full');
+      expect(cell('SUN · 13 SEP: 0 of 1 done')).toHaveAttribute('data-shade', 'none');
+      expect(cell('FRI · 18 SEP: upcoming')).toHaveAttribute('data-shade', 'future');
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it("marks today in the user's timezone, not the browser's", async () => {
+    const clock = installFixedClock();
+    try {
+      arrange();
+      await gridReady();
+
+      expect(cell('THU · 17 SEP: 0 of 1 done')).toHaveAttribute('aria-current', 'date');
+      expect(cell('WED · 16 SEP: 1 of 2 done')).not.toHaveAttribute('aria-current');
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('aligns the month to the week start', async () => {
+    const clock = installFixedClock();
+    try {
+      arrange(1);
+      await gridReady();
+      // 1 Sep 2026 is a Tuesday: second column on a Monday week…
+      expect(column(cell('TUE · 01 SEP: 0 of 1 done'))).toBe(1);
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('…and third on a Sunday week', async () => {
+    const clock = installFixedClock();
+    try {
+      arrange(0);
+      await gridReady();
+      expect(column(cell('TUE · 01 SEP: 0 of 1 done'))).toBe(2);
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('pages between months', async () => {
+    const clock = installFixedClock();
+    try {
+      const { user } = arrange();
+      await gridReady();
+
+      await user.click(screen.getByRole('button', { name: 'Previous month' }));
+      expect(await screen.findByText('AUG 2026')).toBeInTheDocument();
+      // Before any habit existed. A new month is a new range, so wait for it.
+      expect(
+        await screen.findByRole('button', { name: 'MON · 31 AUG: nothing due' }),
+      ).toHaveAttribute('data-shade', 'none');
+
+      await user.click(screen.getByRole('button', { name: 'Next month' }));
+      await user.click(screen.getByRole('button', { name: 'Next month' }));
+      expect(await screen.findByText('OCT 2026')).toBeInTheDocument();
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('filters the shading to one habit', async () => {
+    const clock = installFixedClock();
+    try {
+      const { user } = arrange();
+      await gridReady();
+
+      const filter = screen.getByRole('combobox', { name: 'HABIT' });
+      expect(within(filter).queryByRole('option', { name: 'Old' })).not.toBeInTheDocument();
+      await user.selectOptions(filter, 'Gym');
+
+      expect(cell('WED · 16 SEP: 0 of 1 done')).toHaveAttribute('data-shade', 'none');
+      expect(cell('TUE · 15 SEP: nothing due')).toBeInTheDocument();
+      expect(cell('MON · 14 SEP: 1 of 1 done')).toHaveAttribute('data-shade', 'full');
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('opens a day and backfills it', async () => {
+    const clock = installFixedClock();
+    try {
+      const { user } = arrange();
+      await gridReady();
+
+      await user.click(cell('SUN · 13 SEP: 0 of 1 done'));
+
+      expect(screen.getByRole('radio', { name: 'Day' })).toHaveAttribute('data-state', 'on');
+      expect(screen.getByRole('heading', { name: 'SUN · 13 SEP' })).toBeInTheDocument();
+      // Only what was scheduled that Sunday: Read and the weekly Walk, not Gym.
+      expect(screen.getByRole('button', { name: 'Mark Read done' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Mark Walk done' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Mark Gym done' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Clear Read' })).toBeDisabled();
+
+      await user.click(screen.getByRole('button', { name: 'Mark Read done' }));
+
+      expect(screen.getByRole('button', { name: 'Mark Read done' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      await waitFor(() =>
+        expect(mswState.requests).toContainEqual({
+          method: 'PUT',
+          path: `/habits/${READ.id}/logs/2026-09-13`,
+          body: { status: 'done' },
+        }),
+      );
+
+      await user.click(screen.getByRole('radio', { name: 'Month' }));
+      expect(
+        await screen.findByRole('button', { name: 'SUN · 13 SEP: 1 of 1 done' }),
+      ).toHaveAttribute('data-shade', 'full');
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('clears a logged day back to nothing', async () => {
+    const clock = installFixedClock();
+    try {
+      const { user } = arrange();
+      await gridReady();
+      await user.click(cell('MON · 14 SEP: 2 of 2 done'));
+
+      await user.click(screen.getByRole('button', { name: 'Clear Gym' }));
+
+      await waitFor(() =>
+        expect(mswState.requests).toContainEqual({
+          method: 'DELETE',
+          path: `/habits/${GYM.id}/logs/2026-09-14`,
+          body: null,
+        }),
+      );
+      expect(screen.getByRole('button', { name: 'Clear Gym' })).toBeDisabled();
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('refuses to log a future day, and stops paging at today', async () => {
+    const clock = installFixedClock();
+    try {
+      const { user } = arrange();
+      await gridReady();
+
+      await user.click(cell('THU · 17 SEP: 0 of 1 done'));
+      expect(screen.getByRole('button', { name: 'Mark Read done' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Next day' })).toBeDisabled();
+
+      await user.click(screen.getByRole('radio', { name: 'Month' }));
+      await user.click(cell('FRI · 18 SEP: upcoming'));
+      expect(screen.getByText('Future days can be logged once they arrive.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Mark Read done' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Mark Read skipped' })).toBeDisabled();
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('rolls a backfill back and toasts when the server rejects it', async () => {
+    const clock = installFixedClock();
+    try {
+      failLogWriteAndHoldLogs();
+      const { user } = arrange();
+      await gridReady();
+      await user.click(cell('SUN · 13 SEP: 0 of 1 done'));
+
+      await user.click(screen.getByRole('button', { name: 'Mark Read done' }));
+      expect(screen.getByRole('button', { name: 'Mark Read done' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('We could not save that day.');
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Mark Read done' })).toHaveAttribute(
+          'aria-pressed',
+          'false',
+        ),
+      );
+      // No log again, so there is nothing to clear.
+      expect(screen.getByRole('button', { name: 'Clear Read' })).toBeDisabled();
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('shows 53 weeks in the Year view, aligned to the week start and ending this week', async () => {
+    const clock = installFixedClock();
+    try {
+      const { user } = arrange(1);
+      await gridReady();
+
+      await user.click(screen.getByRole('radio', { name: 'Year' }));
+      const grid = await screen.findByRole('group', { name: '53 weeks' });
+      const days = within(grid).getAllByRole('button');
+      expect(days).toHaveLength(53 * 7);
+
+      const first = days[0]?.getAttribute('data-day') ?? '';
+      expect(weekday(first), 'every column starts on Monday').toBe(1);
+      // This week, Mon 14 – Sun 20 Sep, is the last column.
+      expect(days.at(-7)?.getAttribute('data-day')).toBe('2026-09-14');
+      expect(days.at(-1)?.getAttribute('data-day')).toBe('2026-09-20');
+      expect(within(grid).getByRole('button', { name: 'FRI · 18 SEP: upcoming' })).toBeDisabled();
+
+      await user.click(within(grid).getByRole('button', { name: 'MON · 14 SEP: 2 of 2 done' }));
+      expect(screen.getByRole('heading', { name: 'MON · 14 SEP' })).toBeInTheDocument();
+    } finally {
+      clock.restore();
+    }
+  });
+});

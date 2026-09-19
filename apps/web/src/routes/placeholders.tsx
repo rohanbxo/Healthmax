@@ -14,36 +14,6 @@ import { useLogout } from '@/api/hooks';
 import { useAuth } from '@/auth/AuthProvider';
 import { LOGIN_PATH } from '@/auth/RequireAuth';
 
-export function CalendarRoute(): React.ReactElement {
-  return (
-    <MilestonePlaceholder
-      eyebrow="CALENDAR"
-      title="Calendar"
-      milestone="M8"
-      planned={[
-        'Day / Month / Year segmented control, defaulting to Month',
-        'Cells shaded by done against scheduled, with a habit filter',
-        'Day view with editable statuses inside the backfill window',
-      ]}
-    />
-  );
-}
-
-export function StatsRoute(): React.ReactElement {
-  return (
-    <MilestonePlaceholder
-      eyebrow="STATS"
-      title="Stats"
-      milestone="M8"
-      planned={[
-        'Overall accuracy over 7, 30 and 90 days',
-        'Per habit current streak, best streak and 30-day accuracy',
-        'A 30-day dot strip per habit',
-      ]}
-    />
-  );
-}
-
 export function SettingsRoute(): React.ReactElement {
   const { me, signOut } = useAuth();
   const logout = useLogout();

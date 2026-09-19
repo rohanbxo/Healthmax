@@ -45,8 +45,10 @@ const DAY_KEY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 const MONTH_LENGTHS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
-const WEEKDAY_LABELS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
-const MONTH_LABELS = [
+/** Indexed by {@link weekday}: 0 is Sunday. */
+export const WEEKDAY_LABELS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
+/** Indexed by month − 1. */
+export const MONTH_LABELS = [
   'JAN',
   'FEB',
   'MAR',
