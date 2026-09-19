@@ -5,6 +5,7 @@
  * SPEC §9 code. Reads pass the matching `@beta/core` schema to `apiFetch`,
  * which checks it in development builds only.
  */
+import * as React from 'react';
 import {
   useMutation,
   useQuery,
@@ -14,22 +15,34 @@ import {
 } from '@tanstack/react-query';
 import {
   type AuthDTO,
+  type CreateHabitBody,
+  type DayKey,
   type ForgotPasswordBody,
   type HabitDTO,
+  type Instant,
+  type LogDTO,
+  type LogStatus,
   type LoginBody,
   type MeDTO,
   type PatchMeBody,
   type RegisterBody,
   type ResetPasswordBody,
+  type SnoozeDTO,
+  type SnoozeMinutes,
   type StatsDTO,
   type StatsRange,
   type TodayDTO,
+  type UpdateHabitBody,
+  MS_PER_SECOND,
+  addMinutes,
   authDtoSchema,
   habitDtoSchema,
+  instantToLocalParts,
   meDtoSchema,
   statsDtoSchema,
   todayDtoSchema,
 } from '@beta/core';
+import { useToast } from '@/components/ui';
 import { type ApiError, apiFetch } from './client';
 import { queryKeys } from './keys';
 
@@ -129,10 +142,194 @@ export function useUpdateMe(): UseMutationResult<MeDTO, ApiError, PatchMeBody> {
   });
 }
 
-/*
- * M7 adds the optimistic log / skip / clear / snooze mutations here
- * (SPEC.md §11 "React Query"): `onMutate` cancels ['today'], snapshots it and
- * applies the change; `onError` restores the snapshot and toasts; `onSettled`
- * invalidates ['today'] and ['stats']. Undo replays the inverse mutation
- * through the same path.
+/* -------------------------------------------------------- habit mutations */
+
+/** Both habit writes drop the two reads that a schedule change can move. */
+function useHabitInvalidation(): () => void {
+  const queryClient = useQueryClient();
+  return React.useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.today() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.habits() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.statsAll() });
+  }, [queryClient]);
+}
+
+export function useCreateHabit(): UseMutationResult<HabitDTO, ApiError, CreateHabitBody> {
+  const invalidate = useHabitInvalidation();
+
+  return useMutation<HabitDTO, ApiError, CreateHabitBody>({
+    mutationFn: (body) =>
+      apiFetch<HabitDTO>('/habits', { method: 'POST', body, schema: habitDtoSchema }),
+    onSuccess: invalidate,
+  });
+}
+
+export type UpdateHabitVariables = { id: string; body: UpdateHabitBody };
+
+export function useUpdateHabit(): UseMutationResult<HabitDTO, ApiError, UpdateHabitVariables> {
+  const invalidate = useHabitInvalidation();
+
+  return useMutation<HabitDTO, ApiError, UpdateHabitVariables>({
+    mutationFn: ({ id, body }) =>
+      apiFetch<HabitDTO>(`/habits/${id}`, { method: 'PATCH', body, schema: habitDtoSchema }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteHabit(): UseMutationResult<void, ApiError, string> {
+  const invalidate = useHabitInvalidation();
+
+  return useMutation<void, ApiError, string>({
+    mutationFn: (id) => apiFetch<void>(`/habits/${id}`, { method: 'DELETE' }),
+    onSuccess: invalidate,
+  });
+}
+
+/* ---------------------------------------------------- optimistic today ops */
+
+/**
+ * An ISO instant built from epoch milliseconds without touching `Date`, which
+ * the date guard bans outside `packages/core/src/time.ts` (SPEC.md §13).
+ * Only the optimistic snooze needs it: everything else reads instants.
  */
+function toInstant(ms: number): Instant {
+  const { year, month, day, hour, minute, second } = instantToLocalParts(ms, 'UTC');
+  const millis = ((ms % MS_PER_SECOND) + MS_PER_SECOND) % MS_PER_SECOND;
+  const pad = (value: number, width = 2): string => String(value).padStart(width, '0');
+  return `${pad(year, 4)}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}:${pad(second)}.${pad(millis, 3)}Z`;
+}
+
+/** Everything a mutation needs to address one habit on one day. */
+export type TodayTarget = { habitId: string; dayKey: DayKey };
+
+export type LogVariables = TodayTarget & { status: LogStatus };
+export type SnoozeVariables = TodayTarget & { minutes: SnoozeMinutes };
+
+type TodayMutationContext = { previous: TodayDTO | undefined };
+
+function withoutLog(logs: LogDTO[], target: TodayTarget): LogDTO[] {
+  return logs.filter((log) => log.habitId !== target.habitId || log.dayKey !== target.dayKey);
+}
+
+function withoutSnooze(snoozes: SnoozeDTO[], target: TodayTarget): SnoozeDTO[] {
+  return snoozes.filter((snooze) => snooze.habitId !== target.habitId);
+}
+
+/**
+ * The one optimistic path (SPEC.md §11): `onMutate` cancels `['today']`,
+ * snapshots it and applies `patch` to the cache so the tap lands instantly;
+ * `onError` puts the snapshot back and toasts; `onSettled` invalidates
+ * `['today']` and `['stats']` so the server has the last word.
+ *
+ * Undo is not a special case — it is the inverse variables sent back through
+ * this same hook.
+ */
+function useOptimisticToday<TVariables>(options: {
+  mutationFn: (variables: TVariables) => Promise<void>;
+  patch: (today: TodayDTO, variables: TVariables) => TodayDTO;
+  errorMessage: string;
+}): UseMutationResult<void, ApiError, TVariables, TodayMutationContext> {
+  const { mutationFn, patch, errorMessage } = options;
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation<void, ApiError, TVariables, TodayMutationContext>({
+    mutationFn,
+
+    onMutate: async (variables) => {
+      // An in-flight refetch would otherwise land on top of the optimistic edit.
+      await queryClient.cancelQueries({ queryKey: queryKeys.today() });
+
+      const previous = queryClient.getQueryData<TodayDTO>(queryKeys.today());
+      if (previous !== undefined) {
+        queryClient.setQueryData<TodayDTO>(queryKeys.today(), patch(previous, variables));
+      }
+      return { previous };
+    },
+
+    onError: (error, _variables, context) => {
+      if (context !== undefined) {
+        queryClient.setQueryData<TodayDTO>(queryKeys.today(), context.previous);
+      }
+      toast({ title: errorMessage, description: error.message, variant: 'error' });
+    },
+
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.today() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.statsAll() });
+    },
+  });
+}
+
+/**
+ * Complete or skip (SPEC.md §6 "Actions"): an idempotent upsert that also
+ * clears that day's snooze — so the optimistic patch clears it too.
+ */
+export function useLogMutation(): UseMutationResult<
+  void,
+  ApiError,
+  LogVariables,
+  TodayMutationContext
+> {
+  return useOptimisticToday<LogVariables>({
+    mutationFn: ({ habitId, dayKey, status }) =>
+      apiFetch<void>(`/habits/${habitId}/logs/${dayKey}`, { method: 'PUT', body: { status } }),
+    patch: (today, variables) => ({
+      ...today,
+      logs: [
+        ...withoutLog(today.logs, variables),
+        { habitId: variables.habitId, dayKey: variables.dayKey, status: variables.status },
+      ],
+      snoozes: withoutSnooze(today.snoozes, variables),
+    }),
+    errorMessage: 'We could not save that.',
+  });
+}
+
+/** Deletes the log, putting the habit back in its unlogged section. */
+export function useClearLog(): UseMutationResult<void, ApiError, TodayTarget, TodayMutationContext> {
+  return useOptimisticToday<TodayTarget>({
+    mutationFn: ({ habitId, dayKey }) =>
+      apiFetch<void>(`/habits/${habitId}/logs/${dayKey}`, { method: 'DELETE' }),
+    patch: (today, variables) => ({ ...today, logs: withoutLog(today.logs, variables) }),
+    errorMessage: 'We could not undo that.',
+  });
+}
+
+/** 15, 60 or 180 minutes from now; replaces any existing snooze (SPEC.md §6). */
+export function useSnoozeMutation(): UseMutationResult<
+  void,
+  ApiError,
+  SnoozeVariables,
+  TodayMutationContext
+> {
+  return useOptimisticToday<SnoozeVariables>({
+    mutationFn: ({ habitId, minutes }) =>
+      apiFetch<void>(`/habits/${habitId}/snooze`, { method: 'PUT', body: { minutes } }),
+    patch: (today, variables) => ({
+      ...today,
+      snoozes: [
+        ...withoutSnooze(today.snoozes, variables),
+        {
+          habitId: variables.habitId,
+          dayKey: variables.dayKey,
+          until: toInstant(addMinutes(Date.now(), variables.minutes)),
+        },
+      ],
+    }),
+    errorMessage: 'We could not snooze that.',
+  });
+}
+
+export function useClearSnooze(): UseMutationResult<
+  void,
+  ApiError,
+  TodayTarget,
+  TodayMutationContext
+> {
+  return useOptimisticToday<TodayTarget>({
+    mutationFn: ({ habitId }) => apiFetch<void>(`/habits/${habitId}/snooze`, { method: 'DELETE' }),
+    patch: (today, variables) => ({ ...today, snoozes: withoutSnooze(today.snoozes, variables) }),
+    errorMessage: 'We could not clear that snooze.',
+  });
+}
