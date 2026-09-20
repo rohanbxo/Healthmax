@@ -136,14 +136,18 @@ describe('logs', () => {
       const habit = await postHabit(app(), session);
 
       const bad = await putLog(session, habit.id, TODAY, 'maybe').expect(400);
-      expect(detailPaths(expectEnvelope(bad.body, 'VALIDATION_ERROR').details)).to.include('body.status');
+      expect(detailPaths(expectEnvelope(bad.body, 'VALIDATION_ERROR').details)).to.include(
+        'body.status',
+      );
 
       const extra = await request(app())
         .put(logUrl(habit.id, TODAY))
         .set(...bearer(session.accessToken))
         .send({ status: 'done', note: 'felt great' })
         .expect(400);
-      expect(detailPaths(expectEnvelope(extra.body, 'VALIDATION_ERROR').details)).to.include('body.note');
+      expect(detailPaths(expectEnvelope(extra.body, 'VALIDATION_ERROR').details)).to.include(
+        'body.note',
+      );
     });
 
     it('clears the snooze for that day', async () => {
@@ -228,7 +232,7 @@ describe('logs', () => {
   /* ------------------------------------------------------------ GET /logs */
 
   describe('GET /api/logs', () => {
-    it('returns the caller\'s logs in the range, oldest first', async () => {
+    it("returns the caller's logs in the range, oldest first", async () => {
       const session = await signIn();
       const habit = await createHabit(harness().prisma, session.me.id, {
         createdDayKey: '2026-01-01',
@@ -249,7 +253,11 @@ describe('logs', () => {
 
       const res = await listLogs(session, { from: '2026-09-14', to: TODAY }).expect(200);
       const logs = logDtoSchema.array().parse(res.body);
-      expect(logs.map((log) => log.dayKey)).to.deep.equal(['2026-09-14', '2026-09-15', '2026-09-16']);
+      expect(logs.map((log) => log.dayKey)).to.deep.equal([
+        '2026-09-14',
+        '2026-09-15',
+        '2026-09-16',
+      ]);
 
       const filtered = await listLogs(session, {
         from: '2026-09-01',
@@ -266,7 +274,9 @@ describe('logs', () => {
 
       await listLogs(session, { from, to: addDays(from, MAX_LOG_RANGE_DAYS - 1) }).expect(200);
 
-      const res = await listLogs(session, { from, to: addDays(from, MAX_LOG_RANGE_DAYS) }).expect(422);
+      const res = await listLogs(session, { from, to: addDays(from, MAX_LOG_RANGE_DAYS) }).expect(
+        422,
+      );
       expect(expectEnvelope(res.body, 'UNPROCESSABLE').message).to.include(
         String(MAX_LOG_RANGE_DAYS),
       );
@@ -307,7 +317,7 @@ describe('logs', () => {
   /* ----------------------------------------------------------- IDOR */
 
   describe('authorization (SPEC.md §9: 404, never 403)', () => {
-    it('hides another user\'s logs behind 404', async () => {
+    it("hides another user's logs behind 404", async () => {
       const owner = await registerUser(app(), { timeZone: 'Asia/Dubai' });
       const intruder = await registerUser(app(), { timeZone: 'Asia/Dubai' });
       const habit = await postHabit(app(), owner);

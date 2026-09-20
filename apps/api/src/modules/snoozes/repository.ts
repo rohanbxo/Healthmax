@@ -67,7 +67,10 @@ export function createSnoozeRepository(prisma: PrismaClient): SnoozeRepository {
       } catch (err) {
         // Two snoozes at once: the loser of the insert race retries into the
         // update branch, so the later one still wins.
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === PRISMA_UNIQUE_VIOLATION) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === PRISMA_UNIQUE_VIOLATION
+        ) {
           await write(data);
           return;
         }

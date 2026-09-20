@@ -59,18 +59,23 @@ export class ApiError extends Error {
   }
 }
 
-export const badRequest = (message = 'Invalid request.', details: readonly unknown[] = []): ApiError =>
-  new ApiError('VALIDATION_ERROR', message, details);
+export const badRequest = (
+  message = 'Invalid request.',
+  details: readonly unknown[] = [],
+): ApiError => new ApiError('VALIDATION_ERROR', message, details);
 
 export const unauthenticated = (message = 'Authentication required.'): ApiError =>
   new ApiError('UNAUTHENTICATED', message);
 
 export const notFound = (message = 'Not found.'): ApiError => new ApiError('NOT_FOUND', message);
 
-export const conflict = (message = 'Already exists.'): ApiError => new ApiError('CONFLICT', message);
+export const conflict = (message = 'Already exists.'): ApiError =>
+  new ApiError('CONFLICT', message);
 
-export const unprocessable = (message = 'Request cannot be processed.', details: readonly unknown[] = []): ApiError =>
-  new ApiError('UNPROCESSABLE', message, details);
+export const unprocessable = (
+  message = 'Request cannot be processed.',
+  details: readonly unknown[] = [],
+): ApiError => new ApiError('UNPROCESSABLE', message, details);
 
 export const rateLimited = (message = 'Too many requests. Try again shortly.'): ApiError =>
   new ApiError('RATE_LIMITED', message);
@@ -120,7 +125,12 @@ export function errorHandler(deps: { logger: Logger }): ErrorRequestHandler {
 
     if (unexpected) {
       log.error(
-        { err: error.cause ?? err, requestId: req.requestId, path: req.originalUrl, method: req.method },
+        {
+          err: error.cause ?? err,
+          requestId: req.requestId,
+          path: req.originalUrl,
+          method: req.method,
+        },
         'Unhandled error',
       );
     } else {

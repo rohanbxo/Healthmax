@@ -9,7 +9,11 @@ import { Router, type RequestHandler } from 'express';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { z } from 'zod';
-import { extendZodWithOpenApi, OpenAPIRegistry, OpenApiGeneratorV31 } from '@asteasolutions/zod-to-openapi';
+import {
+  extendZodWithOpenApi,
+  OpenAPIRegistry,
+  OpenApiGeneratorV31,
+} from '@asteasolutions/zod-to-openapi';
 import type { Config } from '../config';
 import { STATUS_BY_CODE } from './errors';
 
@@ -32,7 +36,9 @@ function registerErrorSchema() {
         details: z.array(z.unknown()),
       }),
     })
-    .openapi('ApiError', { description: 'Error envelope used by every non-2xx response (SPEC.md §9).' });
+    .openapi('ApiError', {
+      description: 'Error envelope used by every non-2xx response (SPEC.md §9).',
+    });
   apiRegistry.register('ApiError', schema);
   return schema;
 }
@@ -70,9 +76,9 @@ apiRegistry.registerPath({
   },
 });
 
-export function buildOpenApiDocument(config: Pick<Config, 'APP_URL'>): ReturnType<
-  OpenApiGeneratorV31['generateDocument']
-> {
+export function buildOpenApiDocument(
+  config: Pick<Config, 'APP_URL'>,
+): ReturnType<OpenApiGeneratorV31['generateDocument']> {
   return new OpenApiGeneratorV31(apiRegistry.definitions).generateDocument({
     openapi: '3.1.0',
     info: {
@@ -110,7 +116,9 @@ function docsCsp(): RequestHandler {
 }
 
 /** Mounts `/docs` and `/docs.json`, or nothing at all when docs are disabled. */
-export function createDocsRouter(config: Pick<Config, 'APP_URL' | 'NODE_ENV' | 'DOCS_ENABLED'>): Router {
+export function createDocsRouter(
+  config: Pick<Config, 'APP_URL' | 'NODE_ENV' | 'DOCS_ENABLED'>,
+): Router {
   const router = Router();
   if (!docsEnabled(config)) return router;
 
@@ -119,6 +127,11 @@ export function createDocsRouter(config: Pick<Config, 'APP_URL' | 'NODE_ENV' | '
   router.get(DOCS_JSON_PATH, (_req, res) => {
     res.json(document);
   });
-  router.use(DOCS_PATH, docsCsp(), swaggerUi.serve, swaggerUi.setup(document, { customSiteTitle: 'Beta API' }));
+  router.use(
+    DOCS_PATH,
+    docsCsp(),
+    swaggerUi.serve,
+    swaggerUi.setup(document, { customSiteTitle: 'Beta API' }),
+  );
   return router;
 }

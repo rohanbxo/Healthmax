@@ -7,7 +7,13 @@ import request from 'supertest';
 import { habitDtoSchema, type HabitDTO } from '@beta/core';
 
 import { TEST_NOW_MS, useTestApp } from './helpers/testApp';
-import { bearer, detailPaths, expectEnvelope, expectHiddenFromOtherUser, registerUser } from './helpers/auth';
+import {
+  bearer,
+  detailPaths,
+  expectEnvelope,
+  expectHiddenFromOtherUser,
+  registerUser,
+} from './helpers/auth';
 import { createHabit } from './helpers/factories';
 import { HABITS_URL, habitBody, habitUrl, postHabit } from './helpers/routes';
 
@@ -123,7 +129,7 @@ describe('habits', () => {
       expect(habits.find((habit) => habit.id === archived.id)?.archived).to.equal(true);
     });
 
-    it('never shows another user\'s habits', async () => {
+    it("never shows another user's habits", async () => {
       const owner = await registerUser(app());
       const intruder = await registerUser(app());
       await postHabit(app(), owner);
@@ -201,14 +207,22 @@ describe('habits', () => {
           .expect(400);
 
       expectEnvelope((await patch({})).body, 'VALIDATION_ERROR');
-      expect(detailPaths(expectEnvelope((await patch({ colour: 'red' })).body, 'VALIDATION_ERROR').details))
-        .to.include('body.colour');
-      expect(detailPaths(expectEnvelope((await patch({ time: '25:00' })).body, 'VALIDATION_ERROR').details))
-        .to.include('body.time');
       expect(
         detailPaths(
-          expectEnvelope((await patch({ schedule: { kind: 'weekdays', days: [] } })).body, 'VALIDATION_ERROR')
-            .details,
+          expectEnvelope((await patch({ colour: 'red' })).body, 'VALIDATION_ERROR').details,
+        ),
+      ).to.include('body.colour');
+      expect(
+        detailPaths(
+          expectEnvelope((await patch({ time: '25:00' })).body, 'VALIDATION_ERROR').details,
+        ),
+      ).to.include('body.time');
+      expect(
+        detailPaths(
+          expectEnvelope(
+            (await patch({ schedule: { kind: 'weekdays', days: [] } })).body,
+            'VALIDATION_ERROR',
+          ).details,
         ),
       ).to.include('body.schedule.days');
     });
@@ -275,7 +289,7 @@ describe('habits', () => {
   /* ----------------------------------------------------------- IDOR */
 
   describe('authorization (SPEC.md §9: 404, never 403)', () => {
-    it('hides another user\'s habit from PATCH and DELETE', async () => {
+    it("hides another user's habit from PATCH and DELETE", async () => {
       const owner = await registerUser(app());
       const intruder = await registerUser(app());
       const habit = await postHabit(app(), owner);
@@ -304,7 +318,9 @@ describe('habits', () => {
         .set(...bearer(session.accessToken))
         .send({ name: 'Nope' })
         .expect(400);
-      expect(detailPaths(expectEnvelope(res.body, 'VALIDATION_ERROR').details)).to.include('params.id');
+      expect(detailPaths(expectEnvelope(res.body, 'VALIDATION_ERROR').details)).to.include(
+        'params.id',
+      );
     });
   });
 });

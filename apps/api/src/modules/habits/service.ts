@@ -10,20 +10,12 @@
  *  - every successful write emits `habit.changed`; M9 turns that into a
  *    deduplicated `reschedule-user` job (SPEC.md §10).
  */
-import {
-  todayKey,
-  type CreateHabitBody,
-  type HabitDTO,
-  type UpdateHabitBody,
-} from '@beta/core';
+import { todayKey, type CreateHabitBody, type HabitDTO, type UpdateHabitBody } from '@beta/core';
 
 import type { Clock } from '../../lib/clock';
 import type { EventBus } from '../../events/bus';
 import { notFound, unprocessable } from '../../http/errors';
-import {
-  requireUserContext,
-  type UserContextRepository,
-} from '../shared/userContext';
+import { requireUserContext, type UserContextRepository } from '../shared/userContext';
 import { toHabitDto, toHabitDtos } from './dto';
 import type { HabitRepository } from './repository';
 

@@ -39,10 +39,7 @@ const READ: HabitDTO = {
 };
 
 /** Signs in, serves `habits` from both `/today` and `/habits`, then mounts. */
-function renderAt(
-  route: string,
-  habits: HabitDTO[] = [],
-): ReturnType<typeof renderWithProviders> {
+function renderAt(route: string, habits: HabitDTO[] = []): ReturnType<typeof renderWithProviders> {
   signInMswUser({ timeZone: FIXED_TIME_ZONE });
   setMswToday(makeToday({ habits }));
   setMswHabits(habits);

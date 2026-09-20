@@ -29,7 +29,10 @@ export function userOrIpKey(req: Request): string {
   return `ip:${ipKeyGenerator(req.ip ?? '')}`;
 }
 
-export function createRateLimiter(redis: Redis, options: RateLimiterOptions): RateLimitRequestHandler {
+export function createRateLimiter(
+  redis: Redis,
+  options: RateLimiterOptions,
+): RateLimitRequestHandler {
   return rateLimit({
     windowMs: options.windowMs,
     limit: options.limit,
@@ -43,7 +46,8 @@ export function createRateLimiter(redis: Redis, options: RateLimiterOptions): Ra
     },
     store: new RedisStore({
       prefix: `rl:${options.prefix}:`,
-      sendCommand: (command: string, ...args: string[]) => redis.call(command, ...args) as Promise<RedisReply>,
+      sendCommand: (command: string, ...args: string[]) =>
+        redis.call(command, ...args) as Promise<RedisReply>,
     }),
   });
 }

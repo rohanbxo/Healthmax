@@ -187,10 +187,7 @@ export function HabitForm({
               >
                 <Minus aria-hidden="true" />
               </Button>
-              <output
-                aria-live="polite"
-                className="w-8 text-center font-mono text-lg tabular-nums"
-              >
+              <output aria-live="polite" className="w-8 text-center font-mono text-lg tabular-nums">
                 {count}
               </output>
               <Button

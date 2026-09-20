@@ -54,7 +54,10 @@ describe('GET /api/health', () => {
     } as unknown as typeof deps.redis;
 
     const app = express();
-    app.use('/api', createHealthRouter({ prisma: deps.prisma, redis: brokenRedis, clock: deps.clock }));
+    app.use(
+      '/api',
+      createHealthRouter({ prisma: deps.prisma, redis: brokenRedis, clock: deps.clock }),
+    );
     app.use(errorHandler({ logger: deps.logger }));
 
     const res = await request(app).get('/api/health').expect(503);

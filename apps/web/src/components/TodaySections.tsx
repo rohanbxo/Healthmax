@@ -68,12 +68,7 @@ export type NextUpCardProps = WithNow & {
   actions: TodayActions;
 };
 
-export function NextUpCard({
-  entry,
-  now,
-  timeZone,
-  actions,
-}: NextUpCardProps): React.ReactElement {
+export function NextUpCard({ entry, now, timeZone, actions }: NextUpCardProps): React.ReactElement {
   if (entry === null) {
     return (
       <Card className="px-4 py-6 text-center">
@@ -125,12 +120,7 @@ export function NextUpCard({
 
 export type OverdueRowProps = WithNow & { entry: TodayEntry; actions: TodayActions };
 
-export function OverdueRow({
-  entry,
-  now,
-  timeZone,
-  actions,
-}: OverdueRowProps): React.ReactElement {
+export function OverdueRow({ entry, now, timeZone, actions }: OverdueRowProps): React.ReactElement {
   return (
     <Row className="py-3">
       <div className="min-w-0 flex-1">

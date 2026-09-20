@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.15.9",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "docker compose up",
     "build": "pnpm --filter @beta/core build && pnpm --filter @beta/api build && pnpm --filter @beta/web build",
@@ -13,7 +15,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "pnpm --filter @beta/core test && pnpm --filter @beta/web test && pnpm --filter @beta/api test",
-    "check": "pnpm --filter @beta/core build && pnpm typecheck && pnpm lint && pnpm test"
+    "check": "pnpm --filter @beta/core build && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

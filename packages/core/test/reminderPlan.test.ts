@@ -76,15 +76,11 @@ describe('planReminders — exclusions', () => {
   });
 
   it('skips habits with reminders switched off', () => {
-    expect(
-      planReminders({ ...base, habits: [habit({ remind: false })], now: NOW }),
-    ).toEqual([]);
+    expect(planReminders({ ...base, habits: [habit({ remind: false })], now: NOW })).toEqual([]);
   });
 
   it('skips archived habits', () => {
-    expect(
-      planReminders({ ...base, habits: [habit({ archived: true })], now: NOW }),
-    ).toEqual([]);
+    expect(planReminders({ ...base, habits: [habit({ archived: true })], now: NOW })).toEqual([]);
   });
 
   it('skips a timesPerWeek habit once its weekly target is met', () => {

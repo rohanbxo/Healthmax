@@ -9,14 +9,22 @@ import express, { type Express } from 'express';
 import { z } from 'zod';
 import { pino } from 'pino';
 import { requestId } from '../../src/http/requestId';
-import { errorHandler, conflict, notFound, unauthenticated, unprocessable } from '../../src/http/errors';
+import {
+  errorHandler,
+  conflict,
+  notFound,
+  unauthenticated,
+  unprocessable,
+} from '../../src/http/errors';
 import { notFoundHandler } from '../../src/http/notFound';
 import { validate, getValidated } from '../../src/http/validate';
 
 /** The message a leaking handler must never reveal. */
 export const SECRET_FAILURE_MESSAGE = 'connect ECONNREFUSED 10.0.0.1:5432 password=hunter2';
 
-export const faultBodySchema = { body: z.object({ name: z.string().min(3), count: z.number().int() }) };
+export const faultBodySchema = {
+  body: z.object({ name: z.string().min(3), count: z.number().int() }),
+};
 
 export function createFaultApp(): Express {
   const app = express();

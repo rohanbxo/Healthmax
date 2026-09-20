@@ -35,10 +35,7 @@ import {
   AUTH_ATTEMPT_RATE_LIMIT,
   FORGOT_PASSWORD_RATE_LIMIT,
 } from '../src/modules/auth/rateLimits';
-import {
-  INVALID_CREDENTIALS_MESSAGE,
-  REFRESH_REUSE_MESSAGE,
-} from '../src/modules/auth/service';
+import { INVALID_CREDENTIALS_MESSAGE, REFRESH_REUSE_MESSAGE } from '../src/modules/auth/service';
 
 /** Pulls the single-use reset token out of the queued `send-email` job. */
 function resetTokenFromEmail(text: string): string {
@@ -102,7 +99,9 @@ describe('auth', () => {
       const payload = decoded.payload as Record<string, unknown>;
       expect(Object.keys(payload).sort()).to.deep.equal(['exp', 'iat', 'sub']);
       expect(payload.sub).to.equal(session.me.id);
-      expect((payload.exp as number) - (payload.iat as number)).to.equal(ACCESS_TOKEN_TTL_MS / 1000);
+      expect((payload.exp as number) - (payload.iat as number)).to.equal(
+        ACCESS_TOKEN_TTL_MS / 1000,
+      );
     });
 
     it('stores the refresh token hashed, never in the clear', async () => {
@@ -454,7 +453,10 @@ describe('auth', () => {
 
     it(`returns 429 after ${FORGOT_PASSWORD_RATE_LIMIT.limit} requests per hour per IP`, async () => {
       for (let i = 0; i < FORGOT_PASSWORD_RATE_LIMIT.limit; i += 1) {
-        await request(app()).post(AUTH.forgot).send({ email: `x${i}@example.com` }).expect(204);
+        await request(app())
+          .post(AUTH.forgot)
+          .send({ email: `x${i}@example.com` })
+          .expect(204);
       }
 
       const blocked = await request(app())
@@ -507,8 +509,13 @@ describe('auth', () => {
       const session = await registerUser(app(), { email: 'ada@example.com' });
       const token = await requestReset(session.email);
 
-      await request(app()).post(AUTH.reset).send({ token, password: 'first-new-password' }).expect(204);
-      expect((await harness().prisma.passwordResetToken.findFirstOrThrow()).usedAt).to.not.equal(null);
+      await request(app())
+        .post(AUTH.reset)
+        .send({ token, password: 'first-new-password' })
+        .expect(204);
+      expect((await harness().prisma.passwordResetToken.findFirstOrThrow()).usedAt).to.not.equal(
+        null,
+      );
 
       const replay = await request(app())
         .post(AUTH.reset)
@@ -530,7 +537,10 @@ describe('auth', () => {
         data: { expiresAt: new Date(harness().clock.now() - 1_000) },
       });
 
-      await request(app()).post(AUTH.reset).send({ token, password: 'another-password' }).expect(400);
+      await request(app())
+        .post(AUTH.reset)
+        .send({ token, password: 'another-password' })
+        .expect(400);
     });
 
     it('rejects an unknown token and a too-short password', async () => {

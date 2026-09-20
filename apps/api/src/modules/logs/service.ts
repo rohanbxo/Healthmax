@@ -87,7 +87,10 @@ function assertLoggable(habit: HabitDTO, dayKey: DayKey, today: DayKey): void {
 /** SPEC.md §8: log range queries are capped at 400 days, inclusive of both ends. */
 function assertRange(from: DayKey, to: DayKey): void {
   if (compareDayKeys(from, to) > 0) {
-    throw unprocessable(`"to" (${to}) is before "from" (${from}).`, rangeDetail('Range is inverted.'));
+    throw unprocessable(
+      `"to" (${to}) is before "from" (${from}).`,
+      rangeDetail('Range is inverted.'),
+    );
   }
   const days = diffDays(from, to) + 1;
   if (days > MAX_LOG_RANGE_DAYS) {

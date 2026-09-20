@@ -37,11 +37,16 @@ apiRegistry.registerPath({
     body: { required: true, content: { 'application/json': { schema: putLogBodySchema } } },
   },
   responses: {
-    200: { description: 'The stored log.', content: { 'application/json': { schema: logDtoSchema } } },
+    200: {
+      description: 'The stored log.',
+      content: { 'application/json': { schema: logDtoSchema } },
+    },
     400: errorResponse('Validation failed — for example a malformed `dayKey`.'),
     401: UNAUTHENTICATED_RESPONSE,
     404: HABIT_NOT_FOUND_RESPONSE,
-    422: errorResponse('A future day, a day before the habit existed, or a day it is not scheduled on.'),
+    422: errorResponse(
+      'A future day, a day before the habit existed, or a day it is not scheduled on.',
+    ),
   },
 });
 

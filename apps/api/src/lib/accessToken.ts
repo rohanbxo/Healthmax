@@ -17,8 +17,7 @@ export const ACCESS_TOKEN_ALGORITHM = 'HS256' as const;
 export type AccessTokenClaims = { sub: string; iat: number; exp: number };
 
 export type AccessTokenVerification =
-  | { ok: true; claims: AccessTokenClaims }
-  | { ok: false; reason: 'expired' | 'invalid' };
+  { ok: true; claims: AccessTokenClaims } | { ok: false; reason: 'expired' | 'invalid' };
 
 /** Epoch milliseconds → the integer seconds JWT uses for `iat`/`exp`. */
 function toSeconds(ms: number): number {

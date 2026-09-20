@@ -180,9 +180,9 @@ describe('account', () => {
           .send(body);
 
       const unknown = await patch({ name: 'Ada', weekStart: 7, isAdmin: true }).expect(400);
-      expect(detailPaths(expectEnvelope(unknown.body, 'VALIDATION_ERROR').details)).to.include.members(
-        ['body.isAdmin', 'body.weekStart'],
-      );
+      expect(
+        detailPaths(expectEnvelope(unknown.body, 'VALIDATION_ERROR').details),
+      ).to.include.members(['body.isAdmin', 'body.weekStart']);
 
       const empty = await patch({}).expect(400);
       expectEnvelope(empty.body, 'VALIDATION_ERROR');
@@ -218,7 +218,10 @@ describe('account', () => {
 
     it('deletes the account and cascades its rows', async () => {
       const session = await registerUser(app());
-      await request(app()).post('/api/auth/forgot-password').send({ email: session.email }).expect(204);
+      await request(app())
+        .post('/api/auth/forgot-password')
+        .send({ email: session.email })
+        .expect(204);
 
       await request(app())
         .delete(ME_PATH)

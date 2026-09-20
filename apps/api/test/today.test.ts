@@ -8,7 +8,13 @@ import request from 'supertest';
 import { todayDtoSchema, type TodayDTO } from '@beta/core';
 
 import { TEST_NOW_MS, useTestApp } from './helpers/testApp';
-import { bearer, expectEnvelope, forgeAccessToken, registerUser, type Session } from './helpers/auth';
+import {
+  bearer,
+  expectEnvelope,
+  forgeAccessToken,
+  registerUser,
+  type Session,
+} from './helpers/auth';
 import { createHabit, createLog, createSnooze } from './helpers/factories';
 import { TODAY_URL, habitUrl, logUrl, postHabit, snoozeUrl } from './helpers/routes';
 
@@ -59,7 +65,7 @@ describe('today', () => {
     expect((await getToday(session)).dayKey).to.equal('2026-09-16');
   });
 
-  it('returns the habits, the current week\'s logs and the live snoozes', async () => {
+  it("returns the habits, the current week's logs and the live snoozes", async () => {
     const session = await registerUser(app(), { timeZone: 'Asia/Dubai' });
     const habit = await createHabit(harness().prisma, session.me.id, {
       name: 'Morning run',
@@ -135,11 +141,11 @@ describe('today', () => {
     const today = await getToday(session);
     expect(today.habits.map((entry) => entry.id)).to.deep.equal([archived.id]);
     expect(today.habits[0]?.archived).to.equal(true);
-    expect(today.logs, 'a deleted habit\'s logs stay hidden').to.deep.equal([]);
+    expect(today.logs, "a deleted habit's logs stay hidden").to.deep.equal([]);
     expect(today.snoozes).to.deep.equal([]);
   });
 
-  it('shows only the caller\'s data', async () => {
+  it("shows only the caller's data", async () => {
     const session = await registerUser(app(), { timeZone: 'Asia/Dubai' });
     const stranger = await registerUser(app(), { timeZone: 'Asia/Dubai' });
     const theirs = await postHabit(app(), stranger);

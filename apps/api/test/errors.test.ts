@@ -106,7 +106,10 @@ describe('error envelope', () => {
     });
 
     it('reports a zod failure as VALIDATION_ERROR with path/message details', async () => {
-      const res = await request(app).post('/validated').send({ name: 'ab', count: 'three' }).expect(400);
+      const res = await request(app)
+        .post('/validated')
+        .send({ name: 'ab', count: 'three' })
+        .expect(400);
 
       const { details } = expectEnvelope(res.body, 'VALIDATION_ERROR');
       expect(details).to.have.length(2);
@@ -128,7 +131,10 @@ describe('error envelope', () => {
     });
 
     it('accepts a valid body and exposes it through getValidated', async () => {
-      const res = await request(app).post('/validated').send({ name: 'push-ups', count: 3 }).expect(200);
+      const res = await request(app)
+        .post('/validated')
+        .send({ name: 'push-ups', count: 3 })
+        .expect(200);
       expect(res.body).to.deep.equal({ name: 'push-ups', count: 3 });
     });
 

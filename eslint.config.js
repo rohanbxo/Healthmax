@@ -52,13 +52,19 @@ export const layeringRules = {
       'error',
       {
         paths: [
-          { name: '@prisma/client', message: 'packages/core is pure TypeScript — see SPEC.md §0.6.' },
+          {
+            name: '@prisma/client',
+            message: 'packages/core is pure TypeScript — see SPEC.md §0.6.',
+          },
           { name: 'express', message: 'packages/core is pure TypeScript — see SPEC.md §0.6.' },
           { name: 'react', message: 'packages/core is pure TypeScript — see SPEC.md §0.6.' },
           { name: 'ioredis', message: 'packages/core is pure TypeScript — see SPEC.md §0.6.' },
         ],
         patterns: [
-          { group: ['apps/*', '**/apps/*', '@beta/api', '@beta/web'], message: 'packages/core must not import from apps — see SPEC.md §0.6.' },
+          {
+            group: ['apps/*', '**/apps/*', '@beta/api', '@beta/web'],
+            message: 'packages/core must not import from apps — see SPEC.md §0.6.',
+          },
         ],
       },
     ],
@@ -71,7 +77,10 @@ export const layeringRules = {
           { name: '@prisma/client', message: 'Controllers never touch Prisma — see SPEC.md §3.' },
         ],
         patterns: [
-          { group: ['**/repository', '**/repository.js', '**/*.repository'], message: 'Controllers call services, not repositories — see SPEC.md §3.' },
+          {
+            group: ['**/repository', '**/repository.js', '**/*.repository'],
+            message: 'Controllers call services, not repositories — see SPEC.md §3.',
+          },
         ],
       },
     ],

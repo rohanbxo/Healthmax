@@ -111,7 +111,10 @@ export async function registerUser(
 
 /** One rotation of the refresh cookie, with the CSRF header attached. */
 export function postRefresh(app: Express, token: string): request.Test {
-  return request(app).post(AUTH.refresh).set(...requestedWith()).set(...refreshCookie(token));
+  return request(app)
+    .post(AUTH.refresh)
+    .set(...requestedWith())
+    .set(...refreshCookie(token));
 }
 
 /**
@@ -142,9 +145,9 @@ export function expectEnvelope(
 
 /** The `path` values `validate()` reported, for asserting on a 400. */
 export function detailPaths(details: unknown[]): string[] {
-  return details.map((detail) => (detail as { path?: unknown }).path).filter(
-    (path): path is string => typeof path === 'string',
-  );
+  return details
+    .map((detail) => (detail as { path?: unknown }).path)
+    .filter((path): path is string => typeof path === 'string');
 }
 
 /**
@@ -159,9 +162,8 @@ export function detailPaths(details: unknown[]): string[] {
  */
 export async function expectHiddenFromOtherUser(send: () => request.Test): Promise<void> {
   const res = await send();
-  expect(
-    res.status,
-    `another user's resource must be 404 (never 403), got ${res.status}`,
-  ).to.equal(404);
+  expect(res.status, `another user's resource must be 404 (never 403), got ${res.status}`).to.equal(
+    404,
+  );
   expectEnvelope(res.body, 'NOT_FOUND');
 }

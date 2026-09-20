@@ -33,7 +33,8 @@ export function httpLogger(logger: Logger): HttpLogger {
   return pinoHttp({
     logger,
     genReqId: (req, res) => {
-      const id = (req as { requestId?: string }).requestId ?? String(req.headers[REQUEST_ID_HEADER] ?? '');
+      const id =
+        (req as { requestId?: string }).requestId ?? String(req.headers[REQUEST_ID_HEADER] ?? '');
       if (id) res.setHeader(REQUEST_ID_HEADER, id);
       return id;
     },

@@ -92,7 +92,10 @@ export function createLogRepository(prisma: PrismaClient): LogRepository {
       } catch (err) {
         // Two taps landing at once: the loser of the insert race retries, and
         // the second attempt takes the update branch.
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === PRISMA_UNIQUE_VIOLATION) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === PRISMA_UNIQUE_VIOLATION
+        ) {
           return write(data);
         }
         throw err;

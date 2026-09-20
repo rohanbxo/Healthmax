@@ -34,7 +34,7 @@ describe('snoozes', () => {
       .send({ minutes });
 
   describe('PUT /api/habits/:id/snooze', () => {
-    it('computes `until` from the injected clock, in the user\'s day', async () => {
+    it("computes `until` from the injected clock, in the user's day", async () => {
       const session = await signIn();
       const habit = await postHabit(app(), session);
       expect(harness().clock.now(), 'the clock is pinned').to.equal(TEST_NOW_MS);
@@ -49,7 +49,7 @@ describe('snoozes', () => {
       expect(NOW_ISO < (res.body.until as string)).to.equal(true);
     });
 
-    it('uses the caller\'s timezone for the day key', async () => {
+    it("uses the caller's timezone for the day key", async () => {
       const west = await registerUser(app(), { timeZone: 'America/Los_Angeles' });
       const habit = await postHabit(app(), west);
 
@@ -104,7 +104,9 @@ describe('snoozes', () => {
         .set(...bearer(session.accessToken))
         .send({ minutes: 15, until: '2030-01-01T00:00:00.000Z' })
         .expect(400);
-      expect(detailPaths(expectEnvelope(extra.body, 'VALIDATION_ERROR').details)).to.include('body.until');
+      expect(detailPaths(expectEnvelope(extra.body, 'VALIDATION_ERROR').details)).to.include(
+        'body.until',
+      );
     });
 
     it('emits exactly one snooze.changed event', async () => {
@@ -145,7 +147,7 @@ describe('snoozes', () => {
   });
 
   describe('authorization (SPEC.md §9: 404, never 403)', () => {
-    it('hides another user\'s snooze routes behind 404', async () => {
+    it("hides another user's snooze routes behind 404", async () => {
       const owner = await signIn();
       const intruder = await signIn();
       const habit = await postHabit(app(), owner);
@@ -164,7 +166,7 @@ describe('snoozes', () => {
       );
 
       const rows = await harness().prisma.snooze.findMany({ where: { habitId: habit.id } });
-      expect(rows, 'the owner\'s snooze is untouched').to.have.lengthOf(1);
+      expect(rows, "the owner's snooze is untouched").to.have.lengthOf(1);
       expect(rows[0]?.until.getTime()).to.equal(TEST_NOW_MS + 15 * MINUTE_MS);
     });
   });

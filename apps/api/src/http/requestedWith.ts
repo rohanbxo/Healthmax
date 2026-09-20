@@ -20,7 +20,11 @@ export const REQUESTED_WITH_VALUE = 'beta';
 export function requireRequestedWith(): RequestHandler {
   return (req, _res, next) => {
     if (req.get(REQUESTED_WITH_HEADER) !== REQUESTED_WITH_VALUE) {
-      next(unauthenticated(`This endpoint requires the "X-Requested-With: ${REQUESTED_WITH_VALUE}" header.`));
+      next(
+        unauthenticated(
+          `This endpoint requires the "X-Requested-With: ${REQUESTED_WITH_VALUE}" header.`,
+        ),
+      );
       return;
     }
     next();

@@ -200,7 +200,11 @@ describe('activeSnoozeUntil', () => {
   });
 
   it('returns null once it has elapsed, and for another habit or another day', () => {
-    const elapsed = { habitId: 'habit-1', dayKey: THURSDAY, until: isoAt(THURSDAY, '07:45', DUBAI) };
+    const elapsed = {
+      habitId: 'habit-1',
+      dayKey: THURSDAY,
+      until: isoAt(THURSDAY, '07:45', DUBAI),
+    };
     expect(activeSnoozeUntil(elapsed, 'habit-1', THURSDAY, now)).toBeNull();
 
     const live = { habitId: 'habit-1', dayKey: THURSDAY, until: isoAt(THURSDAY, '08:15', DUBAI) };

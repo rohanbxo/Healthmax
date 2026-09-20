@@ -24,7 +24,11 @@ describe('currentStreak — daily and weekday habits', () => {
   });
 
   it('treats a skipped day as neutral: the streak survives but does not grow', () => {
-    const logs = [log('2026-09-16', 'done'), log('2026-09-15', 'skipped'), log('2026-09-14', 'done')];
+    const logs = [
+      log('2026-09-16', 'done'),
+      log('2026-09-15', 'skipped'),
+      log('2026-09-14', 'done'),
+    ];
     expect(currentStreak({ habit: h, logs, todayKey: THURSDAY, weekStart: MON })).toBe(2);
   });
 
@@ -227,9 +231,9 @@ describe('accuracy — done / (done + missed)', () => {
       '2026-09-08', // week of 09-07: only 2 -> one missed
     ]);
     const window = { from: '2026-08-31', to: THURSDAY };
-    expect(
-      accuracy({ habit: weekly, logs, ...window, todayKey: THURSDAY, weekStart: MON }),
-    ).toBe(0.5);
+    expect(accuracy({ habit: weekly, logs, ...window, todayKey: THURSDAY, weekStart: MON })).toBe(
+      0.5,
+    );
 
     // Finishing the current week does not change a past-weeks ratio.
     const withCurrentWeek = [...logs, ...done(['2026-09-14', '2026-09-15', '2026-09-16'])];

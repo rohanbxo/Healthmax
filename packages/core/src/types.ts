@@ -33,13 +33,7 @@ export type LogStatus = 'done' | 'skipped';
  * `unscheduled` means the habit is not due that day at all.
  */
 export type DayStatus =
-  | 'done'
-  | 'skipped'
-  | 'snoozed'
-  | 'overdue'
-  | 'upcoming'
-  | 'missed'
-  | 'unscheduled';
+  'done' | 'skipped' | 'snoozed' | 'overdue' | 'upcoming' | 'missed' | 'unscheduled';
 
 export type HabitDTO = {
   id: string;

@@ -30,7 +30,10 @@ export type EventBusErrorReporter = (error: unknown, event: DomainEvent) => void
 
 /** Single-process implementation — enough while API and worker share a box. */
 export class InProcessEventBus implements EventBus {
-  private readonly handlers = new Map<DomainEventType, ((event: DomainEvent) => void | Promise<void>)[]>();
+  private readonly handlers = new Map<
+    DomainEventType,
+    ((event: DomainEvent) => void | Promise<void>)[]
+  >();
 
   constructor(private readonly onError: EventBusErrorReporter = () => {}) {}
 

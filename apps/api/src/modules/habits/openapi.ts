@@ -25,7 +25,7 @@ export const errorResponse = (description: string) => ({
 
 export const UNAUTHENTICATED_RESPONSE = errorResponse('Missing, expired or invalid access token.');
 export const HABIT_NOT_FOUND_RESPONSE = errorResponse(
-  "No such habit, or it belongs to somebody else (SPEC.md §9: never 403).",
+  'No such habit, or it belongs to somebody else (SPEC.md §9: never 403).',
 );
 
 const habitResponse = (description: string) => ({
@@ -43,7 +43,7 @@ apiRegistry.registerPath({
   security,
   responses: {
     200: {
-      description: 'The caller\'s habits.',
+      description: "The caller's habits.",
       content: { 'application/json': { schema: z.array(habitDtoSchema) } },
     },
     401: UNAUTHENTICATED_RESPONSE,
@@ -55,7 +55,7 @@ apiRegistry.registerPath({
   path: '/api/habits',
   summary: 'Create a habit',
   description:
-    '`createdDayKey` is set by the server to today in the caller\'s timezone; it is not accepted from the client (SPEC.md §9).',
+    "`createdDayKey` is set by the server to today in the caller's timezone; it is not accepted from the client (SPEC.md §9).",
   tags: TAGS,
   security,
   request: {

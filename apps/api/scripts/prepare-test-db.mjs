@@ -64,7 +64,9 @@ if (!testUrl) {
   process.exit(1);
 }
 if (testUrl === process.env.DATABASE_URL) {
-  console.error('DATABASE_URL_TEST must not equal DATABASE_URL — refusing to touch the dev database.');
+  console.error(
+    'DATABASE_URL_TEST must not equal DATABASE_URL — refusing to touch the dev database.',
+  );
   process.exit(1);
 }
 
