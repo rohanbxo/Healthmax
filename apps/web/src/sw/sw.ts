@@ -26,6 +26,9 @@ export type WorkerClient = {
 type WorkerGlobal = {
   addEventListener(type: 'push', listener: (event: SwPushEvent) => void): void;
   addEventListener(type: 'notificationclick', listener: (event: SwNotificationEvent) => void): void;
+  addEventListener(type: 'install', listener: () => void): void;
+  addEventListener(type: 'activate', listener: (event: SwLifecycleEvent) => void): void;
+  skipWaiting(): Promise<void>;
   location: { origin: string };
   registration: {
     showNotification(title: string, options: Record<string, unknown>): Promise<void>;
@@ -33,8 +36,11 @@ type WorkerGlobal = {
   clients: {
     matchAll(options: { type: 'window'; includeUncontrolled: boolean }): Promise<WorkerClient[]>;
     openWindow(url: string): Promise<unknown>;
+    claim(): Promise<void>;
   };
 };
+
+type SwLifecycleEvent = { waitUntil(promise: Promise<unknown>): void };
 
 type SwPushEvent = {
   data: { json(): unknown } | null;
@@ -77,6 +83,20 @@ function readPayload(event: SwPushEvent): PushPayload {
     return FALLBACK;
   }
 }
+
+/**
+ * Take over as soon as a new version is installed, instead of waiting for
+ * every tab to close. Without these two, an edited worker sits in `waiting`
+ * and the browser keeps running the old code — so a fixed reminder bug would
+ * not reach anyone still holding a tab open.
+ */
+worker.addEventListener('install', () => {
+  void worker.skipWaiting();
+});
+
+worker.addEventListener('activate', (event: SwLifecycleEvent) => {
+  event.waitUntil(worker.clients.claim());
+});
 
 worker.addEventListener('push', (event: SwPushEvent) => {
   const payload = readPayload(event);
