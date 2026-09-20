@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { withExpectedRenderError } from '@/test/renderWithProviders';
 import { Toaster, ToastProvider, useToast, type ToastOptions } from './toast';
 
 function Harness({ options }: { options: ToastOptions }) {
@@ -168,8 +169,8 @@ describe('Toast', () => {
   });
 
   it('throws when useToast is used outside the provider', () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() => render(<Harness options={{ title: 'x' }} />)).toThrow(/ToastProvider/);
-    consoleError.mockRestore();
+    withExpectedRenderError(() => {
+      expect(() => render(<Harness options={{ title: 'x' }} />)).toThrow(/ToastProvider/);
+    });
   });
 });

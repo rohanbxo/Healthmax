@@ -8,6 +8,7 @@
  * handlers before rendering.
  */
 import * as React from 'react';
+import { vi } from 'vitest';
 import { type RenderResult, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -22,6 +23,28 @@ export function createTestQueryClient(): QueryClient {
       mutations: { retry: false },
     },
   });
+}
+
+/**
+ * Runs an assertion about a render that is *meant* to throw, without the
+ * failure reaching the test output.
+ *
+ * React 18's development build re-throws a render error through a DOM event so
+ * that a debugger can break on it. jsdom sees that as an uncaught exception and
+ * prints `Uncaught [Error: …]`, even when the test caught the error itself.
+ * Cancelling the event stops that report; silencing `console.error` stops
+ * React's own component-stack warning. Both are restored afterwards.
+ */
+export function withExpectedRenderError<T>(run: () => T): T {
+  const cancel = (event: ErrorEvent): void => event.preventDefault();
+  window.addEventListener('error', cancel);
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    return run();
+  } finally {
+    consoleError.mockRestore();
+    window.removeEventListener('error', cancel);
+  }
 }
 
 export type RenderWithProvidersOptions = {
