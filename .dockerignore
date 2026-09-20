@@ -1,0 +1,15 @@
+# Keep the build context small and host-only artefacts out of the image.
+# `node_modules` especially: the host's are Windows symlinks into pnpm's store
+# and are meaningless inside a Linux container.
+node_modules
+**/node_modules
+**/dist
+**/coverage
+**/test-results
+**/*.tsbuildinfo
+.git
+.github
+.env
+**/.env
+apps/web/dist
+apps/api/dist

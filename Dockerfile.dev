@@ -1,0 +1,36 @@
+# Development image for `pnpm dev` (SPEC.md §13 "Docker").
+#
+# Deliberately *not* the production image — that one is multi-stage and lands in
+# M11. This one carries the toolchain and the workspace's dependencies so the
+# API, the worker and the web dev server can all run from the same image with
+# the source bind-mounted for hot reload.
+#
+# Debian rather than Alpine: Prisma's query engine wants glibc and OpenSSL, and
+# a musl mismatch is a confusing failure to debug.
+FROM node:22-slim
+
+# `openssl` for Prisma, `ca-certificates` for outbound TLS.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable
+
+WORKDIR /app
+
+# Only the manifests first, so a source edit does not reinstall the world.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY packages/core/package.json packages/core/
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+# `apps/api`'s postinstall runs `prisma generate`, which needs the schema.
+COPY apps/api/prisma apps/api/prisma
+
+RUN pnpm install --frozen-lockfile
+
+# The source arrives as a bind mount at run time; this keeps the image usable
+# on its own (for `docker compose run`, and for a plain `docker build` check).
+COPY . .
+
+# Compose overrides this per service (api, worker, web).
+CMD ["pnpm", "--filter", "@beta/api", "dev"]

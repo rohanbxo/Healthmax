@@ -7,7 +7,7 @@ import request from 'supertest';
 import { createPushDelivery } from '../src/modules/push/delivery';
 import { createPushSubscriptionRepository } from '../src/modules/push/repository';
 import { createPushService } from '../src/modules/push/service';
-import { TEST_NOW_MS, TEST_VAPID_PUBLIC_KEY, useTestApp } from './helpers/testApp';
+import { TEST_NOW_MS, useTestApp } from './helpers/testApp';
 import { bearer, expectEnvelope, registerUser, type Session } from './helpers/auth';
 import { createPushSubscription } from './helpers/factories';
 
@@ -38,7 +38,10 @@ describe('push', () => {
   describe('GET /vapid-public-key', () => {
     it('serves the application server key without a token', async () => {
       const res = await request(app()).get(VAPID_URL).expect(200);
-      expect(res.body).to.deep.equal({ publicKey: TEST_VAPID_PUBLIC_KEY });
+      // Whatever the harness was configured with: a real key from `.env` when
+      // the developer has generated one, otherwise the test fallback.
+      expect(res.body).to.deep.equal({ publicKey: harness().config.VAPID_PUBLIC_KEY });
+      expect(res.body.publicKey).to.be.a('string').and.not.equal('');
     });
 
     it('404s while push is not configured on the server', () => {

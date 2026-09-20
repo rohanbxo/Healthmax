@@ -87,7 +87,17 @@ export async function getTestHarness(): Promise<TestHarness> {
   const queues = new FakeQueues();
   const eventBus = new RecordingEventBus();
 
-  const deps: AppDeps = { prisma, redis, queues, clock, eventBus, mailer, pushSender, config, logger };
+  const deps: AppDeps = {
+    prisma,
+    redis,
+    queues,
+    clock,
+    eventBus,
+    mailer,
+    pushSender,
+    config,
+    logger,
+  };
   const app = createApp(deps);
 
   harness = {

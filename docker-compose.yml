@@ -1,5 +1,48 @@
 name: beta
 
+# Local development stack (SPEC.md §13 "Docker"): Postgres, Redis, the API, the
+# worker and the Vite dev server. `pnpm dev` is `docker compose up`.
+#
+# Host ports are deliberately off the defaults (5433, 6380, 4000) so a local
+# Postgres, Redis or dev server already running keeps working.
+#
+# Every container's `node_modules` is a named volume, at the workspace root and
+# in each package. The repo is bind-mounted for hot reload, and the host's
+# `node_modules` are Windows symlinks into pnpm's store — meaningless in a
+# Linux container — so the volumes mask them with what the image installed.
+
+x-dev-build: &dev-build
+  context: .
+  dockerfile: Dockerfile.dev
+
+# One anchor per entry: YAML merges mappings, not sequences, so a list of
+# lists would not flatten.
+x-mount-apps: &mount-apps ./apps:/app/apps
+x-mount-packages: &mount-packages ./packages:/app/packages
+x-mount-scripts: &mount-scripts ./scripts:/app/scripts:ro
+x-nm-root: &nm-root beta_node_modules:/app/node_modules
+x-nm-core: &nm-core beta_core_node_modules:/app/packages/core/node_modules
+x-nm-api: &nm-api beta_api_node_modules:/app/apps/api/node_modules
+x-nm-web: &nm-web beta_web_node_modules:/app/apps/web/node_modules
+
+x-api-env: &api-env
+  DATABASE_URL: postgresql://beta:beta@postgres:5432/beta?schema=public
+  DATABASE_URL_TEST: postgresql://beta:beta@postgres:5432/beta_test?schema=public
+  REDIS_URL: redis://redis:6379
+  APP_URL: http://localhost:5173
+  # From the root `.env` when present, otherwise a development-only default, so
+  # a clean checkout comes up without any setup.
+  JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-0123456789abcdef}
+  VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+  VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+  VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  EMAIL_FROM: ${EMAIL_FROM:-}
+  DOCS_ENABLED: 'true'
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  # Bind mounts on Windows and macOS do not deliver inotify events.
+  CHOKIDAR_USEPOLLING: 'true'
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -33,78 +76,120 @@ services:
       timeout: 5s
       retries: 10
 
+  # One-shot: compiles packages/core. `dist` is gitignored, so a clean checkout
+  # has none, and both the API and the web app import the built package. The
+  # bind mount means the output lands on the host too.
+  core-build:
+    build: *dev-build
+    # `--force`: `tsc -b` trusts `tsconfig.tsbuildinfo` over the files on disk,
+    # and that file is bind-mounted from the host, where it may describe a
+    # `dist` that is missing or was built by a different toolchain. A few
+    # seconds at startup buys a `dist` that always matches the source.
+    command: pnpm --filter @beta/core exec tsc -b --force
+    volumes: [*mount-apps, *mount-packages, *nm-root, *nm-core, *nm-api, *nm-web]
+    restart: 'no'
+
+  # One-shot: brings the schema up to date before the API starts.
+  migrate:
+    build: *dev-build
+    command: pnpm --filter @beta/api exec prisma migrate deploy
+    environment: *api-env
+    volumes: [*mount-apps, *mount-packages, *nm-root, *nm-core, *nm-api, *nm-web]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: dev
+    build: *dev-build
     command: pnpm --filter @beta/api dev
     environment:
+      <<: *api-env
       NODE_ENV: development
       ROLE: api
       PORT: '3000'
-      DATABASE_URL: postgresql://beta:beta@postgres:5432/beta?schema=public
-      DATABASE_URL_TEST: postgresql://beta:beta@postgres:5432/beta_test?schema=public
-      REDIS_URL: redis://redis:6379
-      APP_URL: http://localhost:5173
-    env_file:
-      - path: .env
-        required: false
     ports:
       - '4000:3000'
-    volumes:
-      - ./apps:/app/apps
-      - ./packages:/app/packages
-      - beta_node_modules:/app/node_modules
+    volumes: [*mount-apps, *mount-packages, *nm-root, *nm-core, *nm-api, *nm-web]
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      core-build:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
 
   worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: dev
+    build: *dev-build
     command: pnpm --filter @beta/api dev
     environment:
+      <<: *api-env
       NODE_ENV: development
       ROLE: worker
-      DATABASE_URL: postgresql://beta:beta@postgres:5432/beta?schema=public
-      REDIS_URL: redis://redis:6379
-      APP_URL: http://localhost:5173
-    env_file:
-      - path: .env
-        required: false
-    volumes:
-      - ./apps:/app/apps
-      - ./packages:/app/packages
-      - beta_node_modules:/app/node_modules
+    volumes: [*mount-apps, *mount-packages, *mount-scripts, *nm-root, *nm-core, *nm-api, *nm-web]
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      core-build:
+        condition: service_completed_successfully
+    healthcheck:
+      # No HTTP here, so check what the worker actually depends on.
+      test: ['CMD', 'node', '/app/scripts/worker-health.mjs']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: dev
+    build: *dev-build
     command: pnpm --filter @beta/web dev
     environment:
+      # Vite proxies /api to the API container (SPEC.md §13).
       VITE_API_PROXY_TARGET: http://api:3000
+      CHOKIDAR_USEPOLLING: 'true'
     ports:
       - '5173:5173'
-    volumes:
-      - ./apps:/app/apps
-      - ./packages:/app/packages
-      - beta_node_modules:/app/node_modules
+    volumes: [*mount-apps, *mount-packages, *nm-root, *nm-core, *nm-api, *nm-web]
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+      core-build:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:5173/').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
 
 volumes:
   beta_pgdata:
   beta_redisdata:
   beta_node_modules:
+  beta_core_node_modules:
+  beta_api_node_modules:
+  beta_web_node_modules:

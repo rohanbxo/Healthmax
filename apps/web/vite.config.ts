@@ -10,8 +10,22 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
+  optimizeDeps: {
+    // `@beta/core` builds to CommonJS, because the API runs it that way. A
+    // linked workspace package is not pre-bundled by default, and the browser
+    // cannot take named exports straight from CJS — without this, every
+    // `import { … } from '@beta/core'` fails at runtime with "does not provide
+    // an export named …". Pre-bundling converts it to ESM once.
+    include: ['@beta/core'],
+  },
   server: {
     port: 5173,
+    // In Docker the server must listen on every interface, or the published
+    // port reaches nothing. Harmless outside Docker.
+    host: true,
+    // Bind mounts on Windows and macOS do not deliver file events, so the
+    // container asks for polling instead (docker-compose.yml).
+    watch: process.env.CHOKIDAR_USEPOLLING === 'true' ? { usePolling: true } : undefined,
     proxy: {
       '/api': { target: apiTarget, changeOrigin: true },
     },
