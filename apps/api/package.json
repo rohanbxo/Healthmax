@@ -14,6 +14,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "pretest": "node scripts/prepare-test-db.mjs",
+    "pretest:ci": "node scripts/prepare-test-db.mjs",
     "test:reset": "node scripts/prepare-test-db.mjs --reset",
     "test": "ts-mocha -p tsconfig.test.json \"test/**/*.test.ts\" --timeout 10000 --exit",
     "test:ci": "ts-mocha -p tsconfig.test.json \"test/**/*.test.ts\" --timeout 10000 --exit --reporter mocha-junit-reporter --reporter-options mochaFile=./test-results/junit.xml",
