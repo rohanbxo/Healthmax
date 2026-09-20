@@ -27,6 +27,7 @@ import {
   startReminderWorkers,
   type ReminderWorkers,
 } from '../src/jobs/reminderWorkers';
+import { startEmailWorker, type EmailWorker } from '../src/jobs/emailWorker';
 import { useTestApp } from './helpers/testApp';
 
 /** A Redis database of its own, so a run never disturbs the dev queues. */
@@ -120,6 +121,53 @@ describe('queues', () => {
       } finally {
         await queue.obliterate({ force: true });
         await queue.close();
+      }
+    });
+  });
+
+  describe('send-email worker', () => {
+    let emailWorker: EmailWorker | undefined;
+
+    afterEach(async () => {
+      await emailWorker?.close();
+      emailWorker = undefined;
+    });
+
+    it('delivers a queued message through the mailer', async function deliversEmail() {
+      this.timeout(20_000);
+      const queue = await drain(QUEUE_NAMES.sendEmail);
+      harness().mailer.reset();
+
+      try {
+        emailWorker = startEmailWorker({
+          mailer: harness().mailer,
+          connection,
+          logger: harness().logger,
+        });
+
+        // What `POST /auth/forgot-password` enqueues (SPEC.md §9).
+        await queues.sendEmail({
+          to: 'rider@example.com',
+          subject: 'Reset your Beta password',
+          html: '<p>link</p>',
+          text: 'link',
+        });
+
+        const deadline = Date.now() + 10_000;
+        while (harness().mailer.sent.length === 0 && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
+        expect(harness().mailer.last(), 'the job never reached the mailer').to.deep.equal({
+          to: 'rider@example.com',
+          subject: 'Reset your Beta password',
+          html: '<p>link</p>',
+          text: 'link',
+        });
+      } finally {
+        await queue.obliterate({ force: true });
+        await queue.close();
+        harness().mailer.reset();
       }
     });
   });

@@ -19,6 +19,7 @@ import { WebPushSender, type PushResult, type PushSender } from './lib/pushSende
 import { InProcessEventBus } from './events/bus';
 import { BullQueues, queueConnection, type Queues } from './jobs/queues';
 import { startReminderWorkers, type ReminderWorkers } from './jobs/reminderWorkers';
+import { startEmailWorker, type EmailWorker } from './jobs/emailWorker';
 
 /** Email is configured from M10 (SPEC.md §14); until then, refuse loudly. */
 function createMailer(config: Config, logger: Logger): Mailer {
@@ -99,7 +100,7 @@ function buildRuntime(config: Config): Runtime {
 async function shutdown(
   runtime: Runtime,
   httpServer: Server | undefined,
-  workers: ReminderWorkers | undefined,
+  workers: (ReminderWorkers | EmailWorker | undefined)[],
   signal: string,
 ): Promise<void> {
   const { logger } = runtime;
@@ -115,9 +116,12 @@ async function shutdown(
 
   const closers: [string, () => Promise<unknown>][] = [
     // Workers first: a job in flight still needs Prisma and Redis.
-    ...(workers
-      ? ([['workers', () => workers.close()]] as [string, () => Promise<unknown>][])
-      : []),
+    ...workers
+      .filter((worker): worker is ReminderWorkers | EmailWorker => worker !== undefined)
+      .map((worker, index): [string, () => Promise<unknown>] => [
+        `worker ${index + 1}`,
+        () => worker.close(),
+      ]),
     ['queues', () => runtime.queues.close()],
     ['prisma', () => runtime.prisma.$disconnect()],
     ['redis', () => runtime.redis.quit()],
@@ -158,7 +162,13 @@ export async function main(): Promise<void> {
   }
 
   let workers: ReminderWorkers | undefined;
+  let emailWorker: EmailWorker | undefined;
   if (config.ROLE === 'worker' || config.ROLE === 'all') {
+    emailWorker = startEmailWorker({
+      mailer: runtime.deps.mailer,
+      connection: queueConnection(config.REDIS_URL),
+      logger,
+    });
     workers = await startReminderWorkers({
       prisma: runtime.prisma,
       clock: runtime.deps.clock,
@@ -175,7 +185,7 @@ export async function main(): Promise<void> {
     process.on(signal, () => {
       if (shuttingDown) return;
       shuttingDown = true;
-      void shutdown(runtime, httpServer, workers, signal).then(() => {
+      void shutdown(runtime, httpServer, [workers, emailWorker], signal).then(() => {
         process.exit(0);
       });
     });

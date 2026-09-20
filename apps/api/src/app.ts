@@ -36,6 +36,7 @@ import { createTodayRouter, TODAY_PATH } from './modules/today/routes';
 import { createRedisStatsCache, type StatsCache } from './modules/stats/cache';
 import { createStatsRouter, STATS_PATH } from './modules/stats/routes';
 import { createPushRouter, PUSH_PATH } from './modules/push/routes';
+import { createTransferRouter } from './modules/transfer/routes';
 import './http/types';
 
 export type AppDeps = {
@@ -194,6 +195,15 @@ export function createApp(deps: AppDeps): Express {
       clock: deps.clock,
       config: deps.config,
       pushSender: deps.pushSender,
+    }),
+  );
+  // `/export` and `/import` spell out their own paths from the `/api` root.
+  api.use(
+    createTransferRouter({
+      prisma: deps.prisma,
+      clock: deps.clock,
+      config: deps.config,
+      eventBus: deps.eventBus,
     }),
   );
   app.use(API_BASE_PATH, api);
