@@ -17,7 +17,15 @@ export const QUEUE_NAMES = {
  */
 export const RESCHEDULE_DEBOUNCE_MS = 2_000;
 
-export const rescheduleJobId = (userId: string): string => `reschedule:${userId}`;
+/**
+ * One job per user, so a burst collapses into a single run.
+ *
+ * The separator is a hyphen because BullMQ rejects a custom job id containing
+ * `:` — it builds its Redis keys with that character ("Custom Id cannot
+ * contain :"). A colon here throws inside the event handler, which is
+ * fire-and-forget, so the write still succeeds and nothing is ever scheduled.
+ */
+export const rescheduleJobId = (userId: string): string => `reschedule-${userId}`;
 
 export type RescheduleUserJob = { userId: string };
 
@@ -47,11 +55,25 @@ export class BullQueues implements Queues {
     };
     this.reschedule = new Queue<RescheduleUserJob>(QUEUE_NAMES.rescheduleUser, {
       connection,
-      defaultJobOptions,
+      defaultJobOptions: {
+        ...defaultJobOptions,
+        // The job id is the user's, which is what collapses a burst of taps
+        // into one run — but BullMQ ignores `add` while a job with that id
+        // still exists, *including* a finished one. Keeping history here would
+        // therefore drop every later change by that user until the retention
+        // window expired, and their reminders would silently stop being
+        // rebuilt. The id has to be released the moment the run ends.
+        removeOnComplete: true,
+        removeOnFail: true,
+      },
     });
     this.email = new Queue<SendEmailJob>(QUEUE_NAMES.sendEmail, {
       connection,
-      defaultJobOptions: { ...defaultJobOptions, attempts: 3, backoff: { type: 'exponential', delay: 5_000 } },
+      defaultJobOptions: {
+        ...defaultJobOptions,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5_000 },
+      },
     });
   }
 
