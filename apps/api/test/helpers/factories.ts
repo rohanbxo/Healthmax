@@ -8,7 +8,16 @@
  */
 import { randomUUID } from 'node:crypto';
 import { hash } from '@node-rs/argon2';
-import type { Habit, Log, PrismaClient, Snooze, User } from '@prisma/client';
+import type {
+  Habit,
+  Log,
+  PrismaClient,
+  PushSubscription,
+  ReminderOccurrence,
+  ReminderStatus,
+  Snooze,
+  User,
+} from '@prisma/client';
 import type { LogStatus, Schedule } from '@beta/core';
 
 import { toDbInstant } from '../../src/lib/instant';
@@ -91,6 +100,44 @@ export async function createLog(
       habitId: args.habitId,
       dayKey: args.dayKey,
       status: args.status ?? 'done',
+    },
+  });
+}
+
+/** A pending reminder occurrence, as `reschedule-user` would have written it. */
+export async function createReminder(
+  prisma: PrismaClient,
+  args: {
+    userId: string;
+    habitId: string;
+    dayKey: string;
+    fireAtMs: number;
+    status?: ReminderStatus;
+  },
+): Promise<ReminderOccurrence> {
+  return prisma.reminderOccurrence.create({
+    data: {
+      userId: args.userId,
+      habitId: args.habitId,
+      dayKey: args.dayKey,
+      fireAt: toDbInstant(args.fireAtMs),
+      status: args.status ?? 'pending',
+    },
+  });
+}
+
+/** A registered browser. `endpoint` is unique across all users (SPEC.md §8). */
+export async function createPushSubscription(
+  prisma: PrismaClient,
+  args: { userId: string; endpoint?: string; failureCount?: number },
+): Promise<PushSubscription> {
+  return prisma.pushSubscription.create({
+    data: {
+      userId: args.userId,
+      endpoint: args.endpoint ?? `https://push.example.com/${randomUUID()}`,
+      p256dh: 'test-p256dh-key',
+      auth: 'test-auth-key',
+      failureCount: args.failureCount ?? 0,
     },
   });
 }

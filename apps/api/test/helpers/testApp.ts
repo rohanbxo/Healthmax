@@ -25,6 +25,9 @@ import { resetDatabase, resetRedis } from './db';
 /** 2026-09-17T06:00:00.000Z — a fixed instant so tests never race the wall clock. */
 export const TEST_NOW_MS = 1_789_624_800_000;
 
+/** The key `GET /push/vapid-public-key` serves in tests. */
+export const TEST_VAPID_PUBLIC_KEY = 'test-vapid-public-key';
+
 export type TestHarness = {
   app: Express;
   deps: AppDeps;
@@ -42,6 +45,12 @@ export type TestHarness = {
   close(): Promise<void>;
 };
 
+/** The environment's value, or `fallback` when it is missing or blank. */
+function envOr(name: string, fallback: string): string {
+  const value = process.env[name];
+  return value !== undefined && value.trim() !== '' ? value : fallback;
+}
+
 function testConfig(): Config {
   loadTestEnv();
   return loadConfig({
@@ -54,6 +63,11 @@ function testConfig(): Config {
     APP_URL: process.env.APP_URL ?? 'http://localhost:5173',
     DOCS_ENABLED: 'true',
     LOG_LEVEL: 'silent',
+    // Required from M9 (SPEC.md §14). Nothing is signed with these: every test
+    // sends through `FakePushSender`. A blank value in `.env` counts as unset.
+    VAPID_PUBLIC_KEY: envOr('VAPID_PUBLIC_KEY', TEST_VAPID_PUBLIC_KEY),
+    VAPID_PRIVATE_KEY: envOr('VAPID_PRIVATE_KEY', 'test-vapid-private-key'),
+    VAPID_SUBJECT: envOr('VAPID_SUBJECT', 'mailto:test@example.com'),
   });
 }
 

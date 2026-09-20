@@ -35,6 +35,7 @@ import { createSnoozesRouter } from './modules/snoozes/routes';
 import { createTodayRouter, TODAY_PATH } from './modules/today/routes';
 import { createRedisStatsCache, type StatsCache } from './modules/stats/cache';
 import { createStatsRouter, STATS_PATH } from './modules/stats/routes';
+import { createPushRouter, PUSH_PATH } from './modules/push/routes';
 import './http/types';
 
 export type AppDeps = {
@@ -94,6 +95,22 @@ function invalidateStatsOnChange(eventBus: EventBus, cache: StatsCache): void {
   eventBus.on('habit.changed', drop);
   eventBus.on('log.changed', drop);
   eventBus.on('user.scheduleChanged', drop);
+}
+
+/**
+ * Rebuilds a user's reminder plan whenever something it is derived from moves
+ * (SPEC.md §10 steps 1–2). The queue keys the job by user and delays it two
+ * seconds, so a burst of taps collapses into one `reschedule-user` run.
+ *
+ * Fire-and-forget by design: a queue that is down must not fail the write the
+ * user just made. `InProcessEventBus` reports the rejection to the logger.
+ */
+function rescheduleRemindersOnChange(eventBus: EventBus, queues: Queues): void {
+  const reschedule = (event: { userId: string }) => queues.rescheduleUser(event.userId);
+  eventBus.on('habit.changed', reschedule);
+  eventBus.on('log.changed', reschedule);
+  eventBus.on('snooze.changed', reschedule);
+  eventBus.on('user.scheduleChanged', reschedule);
 }
 
 /**
@@ -170,7 +187,18 @@ export function createApp(deps: AppDeps): Express {
       cache: statsCache,
     }),
   );
+  api.use(
+    PUSH_PATH,
+    createPushRouter({
+      prisma: deps.prisma,
+      clock: deps.clock,
+      config: deps.config,
+      pushSender: deps.pushSender,
+    }),
+  );
   app.use(API_BASE_PATH, api);
+
+  rescheduleRemindersOnChange(deps.eventBus, deps.queues);
 
   app.use(notFoundHandler());
   app.use(errorHandler({ logger: deps.logger }));

@@ -18,6 +18,7 @@ import { ResendMailer, type MailMessage, type Mailer } from './lib/mailer';
 import { WebPushSender, type PushResult, type PushSender } from './lib/pushSender';
 import { InProcessEventBus } from './events/bus';
 import { BullQueues, queueConnection, type Queues } from './jobs/queues';
+import { startReminderWorkers, type ReminderWorkers } from './jobs/reminderWorkers';
 
 /** Email is configured from M10 (SPEC.md §14); until then, refuse loudly. */
 function createMailer(config: Config, logger: Logger): Mailer {
@@ -65,7 +66,10 @@ function buildRuntime(config: Config): Runtime {
   const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null });
   const queues: Queues = new BullQueues(queueConnection(config.REDIS_URL));
   const eventBus = new InProcessEventBus((error, event) => {
-    logger.error({ err: error, event: event.type, userId: event.userId }, 'Domain event handler failed');
+    logger.error(
+      { err: error, event: event.type, userId: event.userId },
+      'Domain event handler failed',
+    );
   });
 
   // M9 subscribes the reminder scheduler to the bus here.
@@ -91,7 +95,12 @@ function buildRuntime(config: Config): Runtime {
 }
 
 /** Closes each resource once, in dependency order, tolerating failures. */
-async function shutdown(runtime: Runtime, httpServer: Server | undefined, signal: string): Promise<void> {
+async function shutdown(
+  runtime: Runtime,
+  httpServer: Server | undefined,
+  workers: ReminderWorkers | undefined,
+  signal: string,
+): Promise<void> {
   const { logger } = runtime;
   logger.info({ signal }, 'Shutting down');
 
@@ -104,6 +113,10 @@ async function shutdown(runtime: Runtime, httpServer: Server | undefined, signal
   }
 
   const closers: [string, () => Promise<unknown>][] = [
+    // Workers first: a job in flight still needs Prisma and Redis.
+    ...(workers
+      ? ([['workers', () => workers.close()]] as [string, () => Promise<unknown>][])
+      : []),
     ['queues', () => runtime.queues.close()],
     ['prisma', () => runtime.prisma.$disconnect()],
     ['redis', () => runtime.redis.quit()],
@@ -143,9 +156,17 @@ export async function main(): Promise<void> {
     });
   }
 
+  let workers: ReminderWorkers | undefined;
   if (config.ROLE === 'worker' || config.ROLE === 'all') {
-    // M9 starts reschedule-user, dispatch-reminders and extend-windows here.
-    logger.info({ role: config.ROLE }, 'Worker role selected; workers arrive in M9');
+    workers = await startReminderWorkers({
+      prisma: runtime.prisma,
+      clock: runtime.deps.clock,
+      pushSender: runtime.deps.pushSender,
+      queues: runtime.queues,
+      connection: queueConnection(config.REDIS_URL),
+      logger,
+    });
+    logger.info({ role: config.ROLE }, 'Reminder workers started');
   }
 
   let shuttingDown = false;
@@ -153,7 +174,7 @@ export async function main(): Promise<void> {
     process.on(signal, () => {
       if (shuttingDown) return;
       shuttingDown = true;
-      void shutdown(runtime, httpServer, signal).then(() => {
+      void shutdown(runtime, httpServer, workers, signal).then(() => {
         process.exit(0);
       });
     });
