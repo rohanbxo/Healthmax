@@ -271,6 +271,31 @@ describe('reminders', () => {
       expect(harness().pushSender.sent).to.have.length(0);
     });
 
+    it('cancels rather than sends when the user has no device left', async () => {
+      const { session, habit, endpoint } = await arrange();
+      // The browser was unregistered, or the last device was pruned as gone.
+      await harness().prisma.pushSubscription.deleteMany({ where: { endpoint } });
+      await createReminder(harness().prisma, {
+        userId: session.me.id,
+        habitId: habit.id,
+        dayKey: TODAY,
+        fireAtMs: TEST_NOW_MS - MS_PER_MINUTE,
+      });
+
+      const report = await service().dispatchDue();
+
+      expect(report).to.deep.equal({ claimed: 1, sent: 0, cancelled: 1, removed: 0 });
+      expect(harness().pushSender.sent).to.have.length(0);
+      const [row] = await harness().prisma.reminderOccurrence.findMany({
+        where: { userId: session.me.id },
+        select: { status: true, sentAt: true },
+      });
+      expect(row?.status, 'never claim to have sent what nobody could receive').to.equal(
+        'cancelled',
+      );
+      expect(row?.sentAt).to.equal(null);
+    });
+
     it('cancels a stale occurrence instead of sending it', async () => {
       const { session, habit } = await arrange();
       await createReminder(harness().prisma, {

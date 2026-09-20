@@ -154,9 +154,14 @@ export function createReminderService(deps: ReminderServiceDeps): ReminderServic
         const stale = now - occurrence.fireAtMs > STALE_AFTER_MS;
         const logged = context.logged.has(pairKey(occurrence.habitId, occurrence.dayKey));
 
+        const targets = byUser.get(occurrence.userId) ?? [];
+
         // The habit is gone, archived or silenced; the day was already
-        // completed or skipped; or the moment has long passed.
-        if (habit === undefined || stale || logged) {
+        // completed or skipped; the moment has long passed; or the user has no
+        // device left to notify. The claim already marked the row `sent`, and
+        // calling it sent when nothing could be delivered would be a lie in
+        // the one place a delivery question gets answered.
+        if (habit === undefined || stale || logged || targets.length === 0) {
           cancelled.push(occurrence.id);
           continue;
         }
@@ -172,7 +177,7 @@ export function createReminderService(deps: ReminderServiceDeps): ReminderServic
           tag: `habit:${occurrence.habitId}:${occurrence.dayKey}`,
         };
 
-        const delivered = await deps.delivery.deliver(byUser.get(occurrence.userId) ?? [], payload);
+        const delivered = await deps.delivery.deliver(targets, payload);
         report.sent += delivered.sent;
         report.removed += delivered.removed;
       }
