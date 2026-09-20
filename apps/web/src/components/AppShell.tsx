@@ -9,6 +9,8 @@ import * as React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { CalendarDays, ChartColumn, CircleCheck, type LucideIcon, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ReminderPermissionProvider } from '@/push/ReminderPermissionProvider';
+import { ReminderPrompt } from './ReminderPrompt';
 
 const TAB_BAR_HEIGHT_PX = 72;
 
@@ -31,6 +33,16 @@ const shellStyle = { '--tab-bar-height': `${TAB_BAR_HEIGHT_PX}px` } as React.CSS
 
 export function AppShell(): React.ReactElement {
   return (
+    // The prompt lives here, not in the habit form: the form's sheet closes on
+    // save, and the ask has to outlive it (SPEC.md §10).
+    <ReminderPermissionProvider>
+      <AppShellLayout />
+    </ReminderPermissionProvider>
+  );
+}
+
+function AppShellLayout(): React.ReactElement {
+  return (
     <div className="flex min-h-dvh flex-col bg-base" style={shellStyle}>
       <main
         className={cn(
@@ -39,6 +51,9 @@ export function AppShell(): React.ReactElement {
           'pb-[calc(var(--tab-bar-height)+env(safe-area-inset-bottom)+16px)]',
         )}
       >
+        <div className="pt-4 empty:hidden">
+          <ReminderPrompt />
+        </div>
         <Outlet />
       </main>
 

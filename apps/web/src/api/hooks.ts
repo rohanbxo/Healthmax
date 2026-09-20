@@ -123,6 +123,15 @@ export function useLogout(): UseMutationResult<void, ApiError, void> {
   });
 }
 
+/** `POST /push/test` — one notification to each of the caller's devices. */
+export type PushTestReport = { sent: number; removed: number; failed: number };
+
+export function useSendTestNotification(): UseMutationResult<PushTestReport, ApiError, void> {
+  return useMutation<PushTestReport, ApiError, void>({
+    mutationFn: () => apiFetch<PushTestReport>('/push/test', { method: 'POST' }),
+  });
+}
+
 export function useForgotPassword(): UseMutationResult<void, ApiError, ForgotPasswordBody> {
   return useMutation<void, ApiError, ForgotPasswordBody>({
     mutationFn: (body) => apiFetch<void>('/auth/forgot-password', { method: 'POST', body }),
@@ -303,7 +312,12 @@ export function useLogMutation(): UseMutationResult<
 }
 
 /** Deletes the log, putting the habit back in its unlogged section. */
-export function useClearLog(): UseMutationResult<void, ApiError, TodayTarget, TodayMutationContext> {
+export function useClearLog(): UseMutationResult<
+  void,
+  ApiError,
+  TodayTarget,
+  TodayMutationContext
+> {
   return useOptimisticToday<TodayTarget>({
     mutationFn: ({ habitId, dayKey }) =>
       apiFetch<void>(`/habits/${habitId}/logs/${dayKey}`, { method: 'DELETE' }),

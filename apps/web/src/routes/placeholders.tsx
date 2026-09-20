@@ -9,6 +9,7 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MilestonePlaceholder } from '@/components/MilestonePlaceholder';
+import { NotificationSettings } from '@/components/NotificationSettings';
 import { Button, SectionLabel } from '@/components/ui';
 import { useLogout } from '@/api/hooks';
 import { useAuth } from '@/auth/AuthProvider';
@@ -38,10 +39,11 @@ export function SettingsRoute(): React.ReactElement {
         milestone="M10"
         planned={[
           'Name, time zone and week start with debounced auto-save',
-          'Notification permission status, enable and test (M9)',
           'Export, import with a replace confirmation, and delete account',
         ]}
       />
+
+      <NotificationSettings />
 
       <section className="flex flex-col gap-2">
         <SectionLabel>SESSION</SectionLabel>

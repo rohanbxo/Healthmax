@@ -72,7 +72,8 @@ function buildRuntime(config: Config): Runtime {
     );
   });
 
-  // M9 subscribes the reminder scheduler to the bus here.
+  // `createApp` subscribes the reminder scheduler to this bus; the worker role
+  // consumes the jobs it enqueues.
 
   return {
     config,

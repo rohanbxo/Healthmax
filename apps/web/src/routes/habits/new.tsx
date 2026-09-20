@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { type CreateHabitBody } from '@beta/core';
 import { Sheet, SheetContent } from '@/components/ui';
 import { HabitForm } from '@/components/HabitForm';
-import { useReminderPermissionPrompt } from '@/components/useReminderPermissionPrompt';
+import { useReminderPermissionPrompt } from '@/push/ReminderPermissionProvider';
 import { useCreateHabit, useHabits } from '@/api/hooks';
 import { HOME_PATH } from '@/auth/RequireAuth';
 
@@ -31,7 +31,7 @@ export function HabitNewRoute(): React.ReactElement {
     createHabit.mutate(body, {
       onSuccess: () => {
         // SPEC §10: the permission ask belongs right here, after the first
-        // habit with reminders on. M9 implements it behind this seam.
+        // habit with reminders on. The shell renders the prompt.
         reminderPrompt.noteHabitSaved({ remind: body.remind ?? true, isFirstHabit });
         close();
       },

@@ -80,6 +80,17 @@ export type MswState = {
   stats: Partial<Record<number, StatsDTO>>;
   /** M8: every `range` `GET /stats` was asked for, in order. */
   statsRanges: number[];
+  /** M9: `null` makes the VAPID key 404, as an unconfigured server does. */
+  vapidPublicKey: string | null;
+  /** M9: what `POST /push/subscriptions` has registered. */
+  pushSubscriptions: PushSubscriptionRecord[];
+};
+
+/** A subscription as the client sends it (SPEC.md §9 "Push"). */
+export type PushSubscriptionRecord = {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  userAgent?: string;
 };
 
 /** One write the client sent, as the tests want to assert on it. */
@@ -113,6 +124,8 @@ function initialState(): MswState {
     logs: [],
     stats: {},
     statsRanges: [],
+    vapidPublicKey: 'BPtestVapidPublicKey_-0123456789',
+    pushSubscriptions: [],
   };
 }
 
@@ -444,6 +457,46 @@ export const handlers = [
     const to = url.searchParams.get('to') ?? '';
     // 'YYYY-MM-DD' compares as a calendar day.
     return HttpResponse.json(mswState.logs.filter((log) => log.dayKey >= from && log.dayKey <= to));
+  }),
+
+  /* --------------------------------------------------------- M9: push */
+
+  http.get('/api/push/vapid-public-key', () => {
+    if (mswState.vapidPublicKey === null) {
+      return apiError('NOT_FOUND', 'Push notifications are not configured.');
+    }
+    return HttpResponse.json({ publicKey: mswState.vapidPublicKey });
+  }),
+
+  http.post('/api/push/subscriptions', async ({ request }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    mswState.pushSubscriptions.push((await recordJson(request)) as PushSubscriptionRecord);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete('/api/push/subscriptions', async ({ request }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    const body = (await recordJson(request)) as { endpoint: string };
+    mswState.pushSubscriptions = mswState.pushSubscriptions.filter(
+      (subscription) => subscription.endpoint !== body.endpoint,
+    );
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post('/api/push/test', ({ request }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    record(request, null);
+    return HttpResponse.json({
+      sent: mswState.pushSubscriptions.length,
+      removed: 0,
+      failed: 0,
+    });
   }),
 
   http.get('/api/stats', ({ request }) => {
