@@ -14,6 +14,10 @@
  * A future day keeps its place in that order with `aria-disabled` rather than
  * `disabled`, because a disabled button cannot be focused and skipping cells
  * would break the grid's geometry.
+ *
+ * Each cell is a `gridcell` wrapping a real `<button>`: putting the role on the
+ * button itself would override its own, and nothing would tell a screen reader
+ * the day can be opened.
  */
 import * as React from 'react';
 import { type DayKey, type WeekStart, compareDayKeys, formatDayLabel } from '@beta/core';
@@ -134,29 +138,28 @@ export function YearGrid({
                 const shade = shadeFor(tally, dayKey, todayKey);
                 const future = compareDayKeys(dayKey, todayKey) > 0;
                 return (
-                  <button
-                    key={dayKey}
-                    type="button"
-                    role="gridcell"
-                    aria-colindex={columnIndex + 1}
-                    data-day={dayKey}
-                    data-shade={shade}
-                    tabIndex={dayKey === focusedDay ? 0 : -1}
-                    aria-disabled={future || undefined}
-                    aria-current={dayKey === todayKey ? 'date' : undefined}
-                    aria-label={`${formatDayLabel(dayKey)}: ${tallyLabel(tally, shade)}`}
-                    onKeyDown={(event) => onKeyDown(event, rowIndex, columnIndex)}
-                    onFocus={() => setFocusedDay(dayKey)}
-                    onClick={() => {
-                      if (!future) onSelectDay(dayKey);
-                    }}
-                    className={cn(
-                      'size-3 rounded-[3px]',
-                      'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent',
-                      SHADE_CLASSES[shade],
-                      future && 'border border-border/50',
-                    )}
-                  />
+                  <div key={dayKey} role="gridcell" aria-colindex={columnIndex + 1}>
+                    <button
+                      type="button"
+                      data-day={dayKey}
+                      data-shade={shade}
+                      tabIndex={dayKey === focusedDay ? 0 : -1}
+                      aria-disabled={future || undefined}
+                      aria-current={dayKey === todayKey ? 'date' : undefined}
+                      aria-label={`${formatDayLabel(dayKey)}: ${tallyLabel(tally, shade)}`}
+                      onKeyDown={(event) => onKeyDown(event, rowIndex, columnIndex)}
+                      onFocus={() => setFocusedDay(dayKey)}
+                      onClick={() => {
+                        if (!future) onSelectDay(dayKey);
+                      }}
+                      className={cn(
+                        'block size-3 rounded-[3px]',
+                        'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent',
+                        SHADE_CLASSES[shade],
+                        future && 'border border-border/50',
+                      )}
+                    />
+                  </div>
                 );
               })}
             </div>

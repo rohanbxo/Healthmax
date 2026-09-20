@@ -76,10 +76,12 @@ async function openYear(
   return screen.findByRole('grid', { name: 'Last 53 weeks' });
 }
 
-const cellNamed = (grid: HTMLElement, name: string): HTMLElement =>
-  within(grid).getByRole('gridcell', { name });
+/** The focusable button inside a Year cell: what carries the state and the keys. */
+const dayButton = (grid: HTMLElement, name: string): HTMLElement =>
+  within(grid).getByRole('button', { name });
 
-const dayOf = (element: HTMLElement | undefined): string => element?.getAttribute('data-day') ?? '';
+const dayOf = (element: HTMLElement | undefined): string =>
+  (element?.querySelector('button') ?? element)?.getAttribute('data-day') ?? '';
 
 const isTabbable = (element: HTMLElement): boolean => element.getAttribute('tabindex') === '0';
 
@@ -338,10 +340,42 @@ describe('Calendar', () => {
       expect(dayOf(sundays.at(-1))).toBe('2026-09-20');
 
       // A future day keeps its place in the grid, marked rather than removed.
-      expect(cellNamed(grid, 'FRI · 18 SEP: upcoming')).toHaveAttribute('aria-disabled', 'true');
+      expect(dayButton(grid, 'FRI · 18 SEP: upcoming')).toHaveAttribute('aria-disabled', 'true');
 
-      await user.click(cellNamed(grid, 'MON · 14 SEP: 2 of 2 done'));
+      await user.click(dayButton(grid, 'MON · 14 SEP: 2 of 2 done'));
       expect(screen.getByRole('heading', { name: 'MON · 14 SEP' })).toBeInTheDocument();
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('exposes every Year cell as a gridcell wrapping a button', async () => {
+    const clock = installFixedClock();
+    try {
+      const { user } = arrange(1);
+      await gridReady();
+      const grid = await openYear(user);
+
+      const cells = within(grid).getAllByRole('gridcell');
+      const buttons = within(grid).getAllByRole('button');
+      expect(cells).toHaveLength(53 * 7);
+      // The role stays off the button, so a screen reader still hears an action.
+      expect(buttons).toHaveLength(53 * 7);
+
+      for (const gridcell of [cells[0], cells.at(-1), cells[200]]) {
+        const inner = within(gridcell as HTMLElement).getAllByRole('button');
+        expect(inner).toHaveLength(1);
+        expect(gridcell).not.toHaveAttribute('tabindex');
+      }
+
+      // The day and its status are announced by the button; the cell around it
+      // carries only the position.
+      const todayButton = dayButton(grid, 'THU · 17 SEP: 0 of 1 done');
+      const todayCell = todayButton.closest('[role="gridcell"]');
+      expect(todayCell).toBeInTheDocument();
+      expect(todayCell).toHaveAttribute('aria-colindex', '53');
+      expect(todayButton).toHaveAttribute('tabindex', '0');
+      expect(todayButton).toHaveAttribute('aria-current', 'date');
     } finally {
       clock.restore();
     }
@@ -355,35 +389,35 @@ describe('Calendar', () => {
       const grid = await openYear(user);
 
       // Only today is tabbable to begin with.
-      const today = cellNamed(grid, 'THU · 17 SEP: 0 of 1 done');
+      const today = dayButton(grid, 'THU · 17 SEP: 0 of 1 done');
       expect(today).toHaveAttribute('tabindex', '0');
-      expect(cellNamed(grid, 'MON · 14 SEP: 2 of 2 done')).toHaveAttribute('tabindex', '-1');
-      expect(within(grid).getAllByRole('gridcell').filter(isTabbable)).toHaveLength(1);
+      expect(dayButton(grid, 'MON · 14 SEP: 2 of 2 done')).toHaveAttribute('tabindex', '-1');
+      expect(within(grid).getAllByRole('button').filter(isTabbable)).toHaveLength(1);
 
       today.focus();
       expect(today).toHaveFocus();
 
       // Left and right move a week at a time along the same weekday.
       await user.keyboard('{ArrowLeft}');
-      expect(cellNamed(grid, 'THU · 10 SEP: 0 of 1 done')).toHaveFocus();
+      expect(dayButton(grid, 'THU · 10 SEP: 0 of 1 done')).toHaveFocus();
       await user.keyboard('{ArrowRight}');
       expect(today).toHaveFocus();
 
       // Up and down move within the week…
       await user.keyboard('{ArrowUp}');
-      expect(cellNamed(grid, 'WED · 16 SEP: 1 of 2 done')).toHaveFocus();
+      expect(dayButton(grid, 'WED · 16 SEP: 1 of 2 done')).toHaveFocus();
       await user.keyboard('{ArrowDown}{ArrowDown}');
-      expect(cellNamed(grid, 'FRI · 18 SEP: upcoming')).toHaveFocus();
+      expect(dayButton(grid, 'FRI · 18 SEP: upcoming')).toHaveFocus();
 
       // …and Home and End jump to its first and last day.
       await user.keyboard('{Home}');
-      expect(cellNamed(grid, 'MON · 14 SEP: 2 of 2 done')).toHaveFocus();
+      expect(dayButton(grid, 'MON · 14 SEP: 2 of 2 done')).toHaveFocus();
       await user.keyboard('{End}');
-      expect(cellNamed(grid, 'SUN · 20 SEP: upcoming')).toHaveFocus();
+      expect(dayButton(grid, 'SUN · 20 SEP: upcoming')).toHaveFocus();
 
       // The tab stop follows the focused cell, so leaving and returning resumes there.
       await user.keyboard('{Home}');
-      expect(cellNamed(grid, 'MON · 14 SEP: 2 of 2 done')).toHaveAttribute('tabindex', '0');
+      expect(dayButton(grid, 'MON · 14 SEP: 2 of 2 done')).toHaveAttribute('tabindex', '0');
       expect(today).toHaveAttribute('tabindex', '-1');
 
       // Enter opens the focused day.
@@ -401,7 +435,7 @@ describe('Calendar', () => {
       await gridReady();
       const grid = await openYear(user);
 
-      await user.click(cellNamed(grid, 'FRI · 18 SEP: upcoming'));
+      await user.click(dayButton(grid, 'FRI · 18 SEP: upcoming'));
 
       expect(screen.getByRole('radio', { name: 'Year' })).toHaveAttribute('data-state', 'on');
       expect(screen.queryByRole('heading', { name: 'FRI · 18 SEP' })).not.toBeInTheDocument();
