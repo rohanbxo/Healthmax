@@ -18,9 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # No ersion here: the action reads packageManager from package.json,
+      # and specifying both is an error (ERR_PNPM_BAD_PM_VERSION).
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -35,9 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # No ersion here: the action reads packageManager from package.json,
+      # and specifying both is an error (ERR_PNPM_BAD_PM_VERSION).
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -98,9 +98,9 @@ jobs:
       LOG_LEVEL: silent
     steps:
       - uses: actions/checkout@v4
+      # No ersion here: the action reads packageManager from package.json,
+      # and specifying both is an error (ERR_PNPM_BAD_PM_VERSION).
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -124,9 +124,9 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+      # No ersion here: the action reads packageManager from package.json,
+      # and specifying both is an error (ERR_PNPM_BAD_PM_VERSION).
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
