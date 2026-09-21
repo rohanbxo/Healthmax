@@ -15,6 +15,11 @@ export const REDACTED_PATHS = [
   'res.headers["set-cookie"]',
   'req.body.password',
   'req.body.token',
+  // A password reset link carries its token in the query string, so the
+  // browser posting that form sends the whole credential in `Referer`.
+  // Redacting `req.body.token` alone left it in the log in clear.
+  'req.headers.referer',
+  'req.headers.referrer',
 ];
 
 export function createLogger(config: Pick<Config, 'LOG_LEVEL' | 'NODE_ENV'>): Logger {

@@ -73,6 +73,12 @@ export class BullQueues implements Queues {
         ...defaultJobOptions,
         attempts: 3,
         backoff: { type: 'exponential', delay: 5_000 },
+        // A job's payload is the whole message, and a password reset message
+        // contains a live credential. Once it is delivered there is no reason
+        // to keep it, and an hour of retention is an hour that link sits in
+        // Redis. A *failed* one is kept, because it can still be retried and
+        // because nobody received it.
+        removeOnComplete: true,
       },
     });
   }
