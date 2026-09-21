@@ -54,15 +54,25 @@ function devServiceWorker(): Plugin {
 export default defineConfig({
   plugins: [react(), tailwindcss(), devServiceWorker()],
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
-  },
-  optimizeDeps: {
-    // `@beta/core` builds to CommonJS, because the API runs it that way. A
-    // linked workspace package is not pre-bundled by default, and the browser
-    // cannot take named exports straight from CJS — without this, every
-    // `import { … } from '@beta/core'` fails at runtime with "does not provide
-    // an export named …". Pre-bundling converts it to ESM once.
-    include: ['@beta/core'],
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // `@beta/core` builds to CommonJS, because the API runs it that way, and
+      // the browser cannot take named exports from CJS: every
+      // `import { … } from '@beta/core'` then fails at runtime with "does not
+      // provide an export named …", and the app renders nothing.
+      //
+      // Pre-bundling fixes that only while the cache is intact. It is rebuilt
+      // whenever a manifest changes, and in the dev container — where the
+      // lockfile is baked into the image but `package.json` is bind-mounted —
+      // one host-side `pnpm add` was enough to drop `@beta/core` from the
+      // pre-bundle and blank the app a second time.
+      //
+      // So the web app compiles core from source instead. It is TypeScript in
+      // this repo, under the same strict settings, and Vite handles it like any
+      // other source file: no CJS interop, no cache to invalidate, and an edit
+      // to core hot-reloads. The API keeps consuming the built `dist`.
+      '@beta/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
+    },
   },
   server: {
     port: 5173,
