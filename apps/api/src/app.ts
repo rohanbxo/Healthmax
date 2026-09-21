@@ -26,6 +26,7 @@ import { errorHandler } from './http/errors';
 import { globalRateLimit } from './http/rateLimit';
 import { notFoundHandler } from './http/notFound';
 import { createDocsRouter } from './http/openapi';
+import { serveStaticSite } from './http/staticSite';
 import { createHealthRouter, HEALTH_PATH } from './modules/health/routes';
 import { AUTH_PATH, createAuthRouter } from './modules/auth/routes';
 import { createMeRouter, ME_PATH } from './modules/me/routes';
@@ -209,6 +210,13 @@ export function createApp(deps: AppDeps): Express {
   app.use(API_BASE_PATH, api);
 
   rescheduleRemindersOnChange(deps.eventBus, deps.queues);
+
+  // The production image serves the built web app from this same process, on
+  // the same origin (SPEC.md §13). Mounted after `/api`, so an unknown API
+  // route still answers with the JSON envelope rather than the SPA shell.
+  if (deps.config.WEB_ROOT !== undefined) {
+    serveStaticSite(app, { root: deps.config.WEB_ROOT, apiBasePath: API_BASE_PATH });
+  }
 
   app.use(notFoundHandler());
   app.use(errorHandler({ logger: deps.logger }));

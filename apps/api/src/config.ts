@@ -49,6 +49,13 @@ const configSchema = z.object({
   RESEND_API_KEY: optionalString,
   EMAIL_FROM: optionalString,
 
+  /**
+   * Absolute path to the built web app. Set in the production image, where one
+   * process serves both; unset in development, where Vite serves the app and
+   * the API serves only `/api` (SPEC.md §13).
+   */
+  WEB_ROOT: optionalString,
+
   DOCS_ENABLED: booleanFromEnv(false),
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
 });
