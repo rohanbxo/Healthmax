@@ -17,7 +17,10 @@ import {
   type AuthDTO,
   type CreateHabitBody,
   type DayKey,
+  type DeleteMeBody,
+  type ExportDTO,
   type ForgotPasswordBody,
+  type ImportBody,
   type HabitDTO,
   type Instant,
   type LogDTO,
@@ -37,6 +40,7 @@ import {
   addMinutes,
   authDtoSchema,
   compareDayKeys,
+  exportDtoSchema,
   habitDtoSchema,
   instantToLocalParts,
   logDtoSchema,
@@ -159,6 +163,41 @@ export function useUpdateMe(): UseMutationResult<MeDTO, ApiError, PatchMeBody> {
       queryClient.setQueryData(queryKeys.me(), me);
       void queryClient.invalidateQueries({ queryKey: queryKeys.today() });
       void queryClient.invalidateQueries({ queryKey: ['stats'] });
+    },
+  });
+}
+
+/**
+ * `DELETE /me` (SPEC.md §9). The caller drops the local session afterwards;
+ * the server has already cascaded everything away.
+ */
+export function useDeleteAccount(): UseMutationResult<void, ApiError, DeleteMeBody> {
+  return useMutation<void, ApiError, DeleteMeBody>({
+    mutationFn: (body) => apiFetch<void>('/me', { method: 'DELETE', body }),
+  });
+}
+
+/* ------------------------------------------------------- export / import */
+
+export function useExport(): UseMutationResult<ExportDTO, ApiError, void> {
+  return useMutation<ExportDTO, ApiError, void>({
+    mutationFn: () => apiFetch<ExportDTO>('/export', { schema: exportDtoSchema }),
+  });
+}
+
+export type ImportReport = { habits: number; logs: number };
+
+/**
+ * `POST /import` replaces everything, so afterwards nothing cached is still
+ * true — habits, logs, Today and stats all have to come again.
+ */
+export function useImport(): UseMutationResult<ImportReport, ApiError, ImportBody> {
+  const queryClient = useQueryClient();
+
+  return useMutation<ImportReport, ApiError, ImportBody>({
+    mutationFn: (body) => apiFetch<ImportReport>('/import', { method: 'POST', body }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries();
     },
   });
 }

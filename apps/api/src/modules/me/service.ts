@@ -9,7 +9,7 @@ import { verify as argon2Verify } from '@node-rs/argon2';
 import type { DeleteMeBody, MeDTO, PatchMeBody } from '@beta/core';
 
 import type { EventBus } from '../../events/bus';
-import { notFound, unauthenticated } from '../../http/errors';
+import { notFound, unprocessable } from '../../http/errors';
 import { toMeDto, type MeRow } from './dto';
 import type { MeRepository } from './repository';
 
@@ -72,8 +72,16 @@ export function createMeService(deps: MeServiceDeps): MeService {
       if (digest === null) throw notFound(ACCOUNT_GONE);
       // SPEC.md §9: deleting the account takes a password confirmation, so a
       // stolen access token alone cannot destroy someone's history.
+      //
+      // `UNPROCESSABLE`, not `UNAUTHENTICATED`: the caller's token is perfectly
+      // good, they simply typed the wrong password. A 401 here is
+      // indistinguishable from an expired session, and the web client answers
+      // that by signing the user out — so a typo would log you out instead of
+      // telling you it was a typo.
       if (!(await passwordMatches(digest, body.password))) {
-        throw unauthenticated('Password is incorrect.');
+        throw unprocessable('Password is incorrect.', [
+          { path: 'body.password', message: 'Password is incorrect.' },
+        ]);
       }
       // Habits, logs, snoozes, tokens and subscriptions go with it through
       // `onDelete: Cascade` (SPEC.md §8).

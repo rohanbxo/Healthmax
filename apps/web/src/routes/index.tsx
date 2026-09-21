@@ -20,7 +20,7 @@ import { RegisterRoute } from './register';
 import { ForgotRoute } from './forgot';
 import { ResetRoute } from './reset';
 import { OnboardingRoute } from './onboarding';
-import { SettingsRoute } from './placeholders';
+import { SettingsRoute } from './settings';
 import { CalendarRoute } from './calendar';
 import { StatsRoute } from './stats';
 import { TodayRoute } from './today';

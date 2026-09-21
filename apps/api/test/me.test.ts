@@ -210,9 +210,11 @@ describe('account', () => {
         .delete(ME_PATH)
         .set(...bearer(session.accessToken))
         .send({ password: 'not-the-password' })
-        .expect(401);
+        // 422, not 401: the token is valid, the password is not. A 401 reads as
+        // an expired session, and the web client signs the user out for those.
+        .expect(422);
 
-      expectEnvelope(res.body, 'UNAUTHENTICATED');
+      expectEnvelope(res.body, 'UNPROCESSABLE');
       expect(await harness().prisma.user.count()).to.equal(1);
     });
 

@@ -1,16 +1,13 @@
 /**
- * Placeholders for the authenticated screens that later milestones own
- * (SPEC.md §15). They exist so the shell, the tab bar and the guards can be
- * exercised end to end; none of them implements its milestone's behaviour.
- *
- * The one piece of real behaviour here is signing out, because that is auth
- * plumbing this milestone owns.
+ * Settings (SPEC.md §11 "Screens"): account details that save themselves,
+ * notifications, export and import, sign out, and deleting the account.
  */
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MilestonePlaceholder } from '@/components/MilestonePlaceholder';
-import { NotificationSettings } from '@/components/NotificationSettings';
 import { Button, SectionLabel } from '@/components/ui';
+import { AccountSettings } from '@/components/AccountSettings';
+import { DataSettings } from '@/components/DataSettings';
+import { NotificationSettings } from '@/components/NotificationSettings';
 import { useLogout } from '@/api/hooks';
 import { useAuth } from '@/auth/AuthProvider';
 import { LOGIN_PATH } from '@/auth/RequireAuth';
@@ -32,20 +29,17 @@ export function SettingsRoute(): React.ReactElement {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <MilestonePlaceholder
-        eyebrow="SETTINGS"
-        title="Settings"
-        milestone="M10"
-        planned={[
-          'Name, time zone and week start with debounced auto-save',
-          'Export, import with a replace confirmation, and delete account',
-        ]}
-      />
+    <div className="flex flex-col gap-6 pt-4 pb-4">
+      <header className="flex flex-col gap-1">
+        <SectionLabel>SETTINGS</SectionLabel>
+        <h1 className="sr-only">Settings</h1>
+      </header>
 
+      <AccountSettings />
       <NotificationSettings />
+      <DataSettings />
 
-      <section className="flex flex-col gap-2">
+      <section className="flex flex-col gap-2" aria-label="Session">
         <SectionLabel>SESSION</SectionLabel>
         <p className="font-mono text-sm text-muted">{me?.email}</p>
         <Button

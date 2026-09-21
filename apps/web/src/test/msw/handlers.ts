@@ -82,6 +82,12 @@ export type MswState = {
   statsRanges: number[];
   /** M9: `null` makes the VAPID key 404, as an unconfigured server does. */
   vapidPublicKey: string | null;
+  /** M10: what `GET /export` serves. */
+  exportFile: Record<string, unknown> | null;
+  /** M10: force `PATCH /me` to fail, for the auto-save failure path. */
+  patchMeFails: boolean;
+  /** M10: force `DELETE /me` to answer 401, as a wrong password does. */
+  deleteMeFails: boolean;
   /** M9: what `POST /push/subscriptions` has registered. */
   pushSubscriptions: PushSubscriptionRecord[];
 };
@@ -126,6 +132,9 @@ function initialState(): MswState {
     statsRanges: [],
     vapidPublicKey: 'BPtestVapidPublicKey_-0123456789',
     pushSubscriptions: [],
+    exportFile: null,
+    patchMeFails: false,
+    deleteMeFails: false,
   };
 }
 
@@ -148,6 +157,11 @@ export function setMswHabits(habits: HabitDTO[]): void {
 /** Serve these logs from `GET /logs` (M8). */
 export function setMswLogs(logs: LogDTO[]): void {
   mswState.logs = logs;
+}
+
+/** Serve a fixture from `GET /export` (M10). */
+export function setMswExport(file: Record<string, unknown>): void {
+  mswState.exportFile = file;
 }
 
 /** Serve a fixture from `GET /stats?range=` (M8). */
@@ -341,8 +355,9 @@ export const handlers = [
     const denied = requireBearer(request);
     if (denied) return denied;
 
-    const body = (await request.json()) as Partial<MeDTO>;
+    const body = (await recordJson(request)) as Partial<MeDTO>;
     mswState.lastPatchMeBody = body;
+    if (mswState.patchMeFails) return apiError('INTERNAL', 'Something went wrong.');
 
     const session = mswState.session;
     if (!session) return apiError('UNAUTHENTICATED', 'Session expired');
@@ -457,6 +472,33 @@ export const handlers = [
     const to = url.searchParams.get('to') ?? '';
     // 'YYYY-MM-DD' compares as a calendar day.
     return HttpResponse.json(mswState.logs.filter((log) => log.dayKey >= from && log.dayKey <= to));
+  }),
+
+  http.delete('/api/me', async ({ request }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    await recordJson(request);
+    // 422, as the API answers a wrong confirmation password (SPEC.md §9).
+    if (mswState.deleteMeFails) return apiError('UNPROCESSABLE', 'Password is incorrect.');
+    mswState.session = null;
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  /* ------------------------------------------- M10: export and import */
+
+  http.get('/api/export', ({ request }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+    return HttpResponse.json(mswState.exportFile);
+  }),
+
+  http.post('/api/import', async ({ request }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    const body = (await recordJson(request)) as { habits: unknown[]; logs: unknown[] };
+    return HttpResponse.json({ habits: body.habits.length, logs: body.logs.length });
   }),
 
   /* --------------------------------------------------------- M9: push */

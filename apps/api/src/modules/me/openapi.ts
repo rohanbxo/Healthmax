@@ -70,7 +70,8 @@ apiRegistry.registerPath({
   responses: {
     204: { description: 'Account deleted.' },
     400: errorResponse('Validation failed.'),
-    401: errorResponse('Missing access token, or the password is incorrect.'),
+    401: UNAUTHENTICATED,
     404: GONE,
+    422: errorResponse('The password is incorrect (the token is still valid).'),
   },
 });
