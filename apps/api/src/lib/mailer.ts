@@ -34,8 +34,15 @@ export class ResendMailer implements Mailer {
       html: msg.html,
       ...(msg.text === undefined ? {} : { text: msg.text }),
     });
-    // Resend reports failures in the payload rather than by throwing.
-    if (error) throw new Error(`Resend refused the message: ${error.name}`);
+    // Resend reports failures in the payload rather than by throwing. Carry
+    // its message, not just the name: "validation_error" alone says nothing,
+    // while the message names the actual problem — an unverified sender
+    // domain, or the test sender's rule that it may only write to the account
+    // owner's own address. The message describes the *sender* configuration,
+    // never the recipient's content, so it is safe to log.
+    if (error) {
+      throw new Error(`Resend refused the message (${error.name}): ${error.message}`);
+    }
   }
 }
 
