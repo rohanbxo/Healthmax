@@ -6,7 +6,9 @@
  *  - signed in, not yet onboarded -> `/onboarding`;
  *  - signed in and onboarded      -> kept out of `/onboarding`.
  *
- * `PublicOnly` is its mirror for `/login`, `/register`, `/forgot`, `/reset`.
+ * `PublicOnly` is its mirror for `/login`, `/register` and `/forgot`.
+ * `/reset` is deliberately outside it: that link arrives by email and is
+ * opened on whichever device shows the mail, which is usually still signed in.
  */
 import * as React from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';

@@ -36,8 +36,16 @@ export function AppRoutes(): React.ReactElement {
         <Route path="/login" element={<LoginRoute />} />
         <Route path="/register" element={<RegisterRoute />} />
         <Route path="/forgot" element={<ForgotRoute />} />
-        <Route path="/reset" element={<ResetRoute />} />
       </Route>
+
+      {/*
+        `/reset` is reachable signed in or not. The link arrives by email, and
+        it is opened on whichever device shows the mail — usually one that is
+        still logged in. Behind `PublicOnly` that device bounced to Today and
+        the reset silently did nothing, which is exactly the case a locked-out
+        user is trying to escape. Resetting revokes every session anyway.
+      */}
+      <Route path="/reset" element={<ResetRoute />} />
 
       <Route element={<RequireAuth />}>
         <Route path="/onboarding" element={<OnboardingRoute />} />

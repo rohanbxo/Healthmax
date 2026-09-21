@@ -30,6 +30,28 @@ describe('route guards', () => {
     expect(screen.queryByRole('heading', { name: 'A few details.' })).not.toBeInTheDocument();
   });
 
+  it('opens the reset screen for a signed-in user, not Today', async () => {
+    // The link arrives by email and is opened on whichever device shows the
+    // mail — usually one that is still signed in. Behind `PublicOnly` that
+    // device bounced to Today and the reset silently did nothing.
+    signInMswUser({ onboarded: true });
+
+    renderWithProviders(<AppRoutes />, { route: '/reset?token=a-reset-token-from-an-email' });
+
+    expect(
+      await screen.findByRole('heading', { name: 'Choose a new password.' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Today' })).not.toBeInTheDocument();
+  });
+
+  it('still keeps a signed-in user off /login and /register', async () => {
+    signInMswUser({ onboarded: true });
+
+    renderWithProviders(<AppRoutes />, { route: '/login' });
+
+    expect(await screen.findByRole('heading', { name: 'Today' })).toBeInTheDocument();
+  });
+
   it('keeps an onboarded user out of /onboarding', async () => {
     signInMswUser({ onboarded: true });
 
