@@ -185,6 +185,19 @@ export function useExport(): UseMutationResult<ExportDTO, ApiError, void> {
   });
 }
 
+/**
+ * `POST /export/cloud`: the server writes the export to its bucket and hands
+ * back a short-lived presigned link to it. A server without a bucket answers
+ * 404 `NOT_FOUND`, as push does without VAPID keys.
+ */
+export type CloudExportDTO = { url: string; expiresAt: Instant; key: string };
+
+export function useCloudExport(): UseMutationResult<CloudExportDTO, ApiError, void> {
+  return useMutation<CloudExportDTO, ApiError, void>({
+    mutationFn: () => apiFetch<CloudExportDTO>('/export/cloud', { method: 'POST' }),
+  });
+}
+
 export type ImportReport = { habits: number; logs: number };
 
 /**

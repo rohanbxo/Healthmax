@@ -17,6 +17,7 @@ import { SystemClock } from './lib/clock';
 import { awsClientConfig } from './lib/aws';
 import { ResendMailer, type MailMessage, type Mailer } from './lib/mailer';
 import { SesMailer } from './lib/sesMailer';
+import { S3ObjectStore, type ObjectStore } from './lib/objectStore';
 import { WebPushSender, type PushResult, type PushSender } from './lib/pushSender';
 import { InProcessEventBus } from './events/bus';
 import { BullQueues, queueConnection, type Queues } from './jobs/queues';
@@ -64,6 +65,25 @@ function createPushSender(config: Config, logger: Logger): PushSender {
   };
 }
 
+/** Cloud export needs a bucket; without one the endpoint answers 404. */
+function createObjectStore(config: Config, logger: Logger): ObjectStore | undefined {
+  const store = S3ObjectStore.fromConfig(config);
+  if (store === undefined) {
+    logger.warn('S3_EXPORT_BUCKET is not set — cloud export is disabled.');
+    return undefined;
+  }
+  logger.info(
+    {
+      region: config.AWS_REGION,
+      bucket: config.S3_EXPORT_BUCKET,
+      endpoint: config.AWS_ENDPOINT_URL ?? 'aws',
+      publicEndpoint: config.AWS_PUBLIC_ENDPOINT_URL ?? config.AWS_ENDPOINT_URL ?? 'aws',
+    },
+    'Cloud export to S3 is enabled',
+  );
+  return store;
+}
+
 type Runtime = {
   config: Config;
   logger: Logger;
@@ -102,6 +122,7 @@ function buildRuntime(config: Config): Runtime {
       eventBus,
       mailer: createMailer(config, logger),
       pushSender: createPushSender(config, logger),
+      objectStore: createObjectStore(config, logger),
       config,
       logger,
     },

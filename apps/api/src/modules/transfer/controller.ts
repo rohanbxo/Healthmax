@@ -15,6 +15,7 @@ export const transferSchemas = {
 
 export type TransferController = {
   export: RequestHandler;
+  exportToCloud: RequestHandler;
   import: RequestHandler;
 };
 
@@ -32,6 +33,10 @@ export function createTransferController(deps: { service: TransferService }): Tr
         .status(200)
         .set('Content-Disposition', `attachment; filename="${exportFilename(data.exportedAt)}"`)
         .json(data);
+    }),
+
+    exportToCloud: asyncHandler(async (req, res) => {
+      res.status(201).json(await deps.service.exportToCloud(requireUserId(req)));
     }),
 
     import: asyncHandler(async (req, res) => {

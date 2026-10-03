@@ -3,8 +3,8 @@
  *
  * `createApp` receives every collaborator it needs. Nothing under `src/`
  * imports a singleton Prisma or Redis client: production wires the real ones in
- * `server.ts`, tests pass `FixedClock`, `FakeMailer`, `FakePushSender` and
- * `FakeQueues`.
+ * `server.ts`, tests pass `FixedClock`, `FakeMailer`, `FakePushSender`,
+ * `FakeQueues` and `FakeObjectStore`.
  */
 import express, { type Express } from 'express';
 import cookieParser from 'cookie-parser';
@@ -17,6 +17,7 @@ import type { Config } from './config';
 import type { Clock } from './lib/clock';
 import type { Mailer } from './lib/mailer';
 import type { PushSender } from './lib/pushSender';
+import type { ObjectStore } from './lib/objectStore';
 import type { EventBus } from './events/bus';
 import type { Queues } from './jobs/queues';
 
@@ -48,6 +49,8 @@ export type AppDeps = {
   eventBus: EventBus;
   mailer: Mailer;
   pushSender: PushSender;
+  /** `undefined` when `S3_EXPORT_BUCKET` is unset: cloud export is disabled. */
+  objectStore: ObjectStore | undefined;
   config: Config;
   logger: Logger;
 };
@@ -198,13 +201,16 @@ export function createApp(deps: AppDeps): Express {
       pushSender: deps.pushSender,
     }),
   );
-  // `/export` and `/import` spell out their own paths from the `/api` root.
+  // `/export`, `/export/cloud` and `/import` spell out their own paths from
+  // the `/api` root.
   api.use(
     createTransferRouter({
       prisma: deps.prisma,
+      redis: deps.redis,
       clock: deps.clock,
       config: deps.config,
       eventBus: deps.eventBus,
+      objectStore: deps.objectStore,
     }),
   );
   app.use(API_BASE_PATH, api);
