@@ -32,16 +32,26 @@ flowchart TB
     Push["Web Push (VAPID)"]
     Mail["Resend"]
 
+    subgraph AWS["AWS — Floci on :4566 locally, real AWS in production"]
+        S3[("S3<br/>beta-exports")]
+        SES["SES v2"]
+    end
+    Mailpit["Mailpit<br/>local inbox :8025"]
+
     PWA -->|"fetch /api"| API
     PWA -.->|registers| SW
     Static --> PWA
     API -->|domain events| Workers
     API --> PG
     API --> RD
+    API -->|"cloud export"| S3
+    PWA -->|"presigned GET"| S3
     Workers --> PG
     Workers --> RD
     Workers -->|"due reminders"| Push
-    Workers -->|"password reset"| Mail
+    Workers -->|"password reset<br/>EMAIL_PROVIDER"| Mail
+    Workers -->|"password reset<br/>EMAIL_PROVIDER"| SES
+    SES -.->|"SMTP relay (local only)"| Mailpit
     Push -.->|"push event"| SW
     API -. imports .-> Core
     PWA -. imports .-> Core
@@ -49,7 +59,9 @@ flowchart TB
 
 One image, one origin. The API serves `/api`; everything else is the built web
 app. Same origin means no CORS anywhere and first-party cookies, which is what
-lets the refresh cookie stay `SameSite=Strict`.
+lets the refresh cookie stay `SameSite=Strict`. The one exception is a cloud
+export: the browser downloads it straight from S3 through a short-lived
+presigned URL, so the file never streams back through the API.
 
 **API reference:** Swagger UI at `/api/docs` when `DOCS_ENABLED=true`, generated
 from the same zod schemas that validate requests. Route-by-route notes live in
@@ -69,9 +81,11 @@ pnpm dev                 # 3. builds the images, migrates, starts everything
 
 Open **http://localhost:5173**. The API is on `http://localhost:4000`, Postgres
 on `5433` and Redis on `6380` (offset so they never collide with local
-installs). `pnpm dev` runs Postgres, Redis, a one-shot core build, a one-shot
-migration, the API, the worker and the Vite dev server; the web container
-proxies `/api` to the API container, so the browser only ever sees one origin.
+installs), Floci's AWS endpoint on `4566` and the Mailpit inbox on
+**http://localhost:8025**. `pnpm dev` runs Postgres, Redis, Floci, Mailpit, a
+one-shot core build, a one-shot migration, a one-shot AWS setup, the API, the
+worker and the Vite dev server; the web container proxies `/api` to the API
+container, so the browser only ever sees one origin.
 
 Two more, when you need them:
 
@@ -84,9 +98,123 @@ The API suite needs the Compose Postgres and Redis running, and uses a separate
 `beta_test` database — `DATABASE_URL_TEST` must differ from `DATABASE_URL`, and
 a guard refuses to run if it doesn't.
 
-Push notifications need VAPID keys (`npx web-push generate-vapid-keys`) and
-password reset needs a Resend key; without them the app runs, and those two
-features report themselves as off.
+Each container's `node_modules` is a named volume, filled from the image only
+when the volume is first created. After a pull that adds a dependency (a
+`Cannot find module` on startup), rebuild and recreate them — the database is
+untouched:
+
+```bash
+docker compose down && docker volume rm beta_beta_node_modules beta_beta_core_node_modules beta_beta_api_node_modules beta_beta_web_node_modules
+docker compose build && pnpm dev
+```
+
+Push notifications need VAPID keys (`npx web-push generate-vapid-keys`); without
+them the app runs and push reports itself as off. Password-reset email and cloud
+export work out of the box under Compose, against Floci (below).
+
+---
+
+## Local AWS with Floci
+
+Password-reset email goes through Amazon SES and cloud export through S3, and
+locally both run against [Floci](https://floci.io), an AWS emulator on one
+endpoint, `http://localhost:4566`. The code calls the real AWS SDK v3 clients
+against the real AWS APIs; it is free, works offline and needs no AWS account.
+Production is the same code with different environment variables — no branch
+says "if local".
+
+Compose wires it up: `floci` is the emulator, `aws-init` is a one-shot AWS CLI
+container that runs `scripts/floci-init.sh` (idempotent) to create the
+`beta-exports` bucket, block public access, expire `exports/` after a day and
+verify the `EMAIL_FROM` sender in SES, and `api`/`worker` wait for it to finish.
+Floci relays every email SES sends to `mailpit` over SMTP, so a reset email
+lands in a real inbox UI. Floci's state is disposable: restarting it starts
+from empty, and `aws-init` recreates the bucket.
+
+| Variable                                      | Default                             | Purpose                                                                                    |
+| --------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| `EMAIL_PROVIDER`                              | `none` (`ses` under Compose)        | `resend` \| `ses` \| `none`. Unset with `RESEND_API_KEY` set means `resend`, as before.    |
+| `EMAIL_FROM`                                  | unset (`Beta <no-reply@beta.test>`) | Sender; required by `resend` and `ses`, and startup fails with a clear message without it. |
+| `AWS_REGION`                                  | `us-east-1`                         |                                                                                            |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | unset (`test`/`test` locally)       | Unset means the SDK's default credential chain (an IAM role). Never logged.                |
+| `AWS_ENDPOINT_URL`                            | unset (`http://floci:4566`)         | Where the API and worker reach AWS. Unset means real AWS.                                  |
+| `AWS_PUBLIC_ENDPOINT_URL`                     | unset (`http://localhost:4566`)     | Only for signing URLs the browser opens — the browser cannot resolve `floci`.              |
+| `S3_EXPORT_BUCKET`                            | unset (`beta-exports`)              | Unset turns cloud export off; `POST /api/export/cloud` then answers 404.                   |
+| `EXPORT_URL_TTL_SECONDS`                      | `900`                               | Lifetime of the presigned download URL.                                                    |
+
+Values in parentheses are what Compose sets. If you used Resend through `.env`
+before, add `EMAIL_PROVIDER=resend` there: Compose now defaults to `ses`.
+
+**Why two endpoints.** The API container reaches Floci as `http://floci:4566`;
+the browser can only reach `http://localhost:4566`. A SigV4 presigned URL signs
+the host, so rewriting `floci` to `localhost` afterwards would break the
+signature. `S3ObjectStore` uploads with one client and presigns with a second
+one configured with `AWS_PUBLIC_ENDPOINT_URL`. Presigning is local crypto, not a
+network call. On real AWS both are unset and both clients use the regional
+endpoint.
+
+### Demo
+
+After `pnpm dev`, give it something to show: request a reset on the "Forgot
+password" screen, then sign in and press **Save export to cloud** in Settings →
+Data. Then, from a host shell (the host has no AWS profile, so export Floci's
+dummy credentials first):
+
+```bash
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1
+
+aws --endpoint-url http://localhost:4566 s3 ls s3://beta-exports --recursive   # the uploaded export
+aws --endpoint-url http://localhost:4566 ses list-identities                   # the verified sender
+curl -s http://localhost:4566/_aws/ses | jq                                     # every email SES sent
+open http://localhost:8025                                                      # Mailpit inbox
+```
+
+`open` is macOS; use `start` on Windows and `xdg-open` on Linux.
+`curl -X DELETE http://localhost:4566/_aws/ses` clears the captured emails.
+
+The same emulator runs in CI: `test/floci.integration.test.ts` uploads through
+`S3ObjectStore`, fetches the presigned URL and checks the JSON round-trips, and
+sends through `SesMailer` and finds the message at `/_aws/ses`. It only runs
+with `FLOCI_TESTS=1`; locally, `FLOCI_TESTS=1 pnpm --filter @beta/api test`
+with `pnpm dev` up.
+
+### Moving to real AWS
+
+| Variable                                      | Local (Compose)             | Real AWS                                                   |
+| --------------------------------------------- | --------------------------- | ---------------------------------------------------------- |
+| `AWS_ENDPOINT_URL`                            | `http://floci:4566`         | unset                                                      |
+| `AWS_PUBLIC_ENDPOINT_URL`                     | `http://localhost:4566`     | unset                                                      |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | `test` / `test`             | unset — the default credential chain picks up the IAM role |
+| `AWS_REGION`                                  | `us-east-1`                 | your region                                                |
+| `S3_EXPORT_BUCKET`                            | `beta-exports`              | your bucket                                                |
+| `EMAIL_PROVIDER`                              | `ses`                       | `ses`                                                      |
+| `EMAIL_FROM`                                  | `Beta <no-reply@beta.test>` | an identity verified in SES                                |
+
+The role needs no more than this:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::<bucket>/exports/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "ses:SendEmail",
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+`s3:GetObject` is there because a presigned URL carries the signer's
+permissions. Two things the init script does locally are a one-off job for IaC
+or the console in a real account: the bucket's public access block and its
+one-day lifecycle rule on `exports/`. And real SES starts in sandbox mode, where
+it only delivers to verified recipients until you request production access.
 
 ---
 
@@ -147,10 +275,11 @@ is never used.
 ### Dependency injection everywhere
 
 `createApp(deps)` takes Prisma, Redis, the queues, the clock, the event bus, the
-mailer and the push sender. Production wires the real ones in `server.ts`; tests
-pass `FixedClock`, `FakeMailer`, `FakePushSender` and `FakeQueues` against a
-_real_ Postgres and a _real_ Redis, so the SQL and the rate limiter are
-genuinely exercised while nothing leaves the process.
+mailer, the push sender and the object store. Production wires the real ones in
+`server.ts`; tests pass `FixedClock`, `FakeMailer`, `FakePushSender`,
+`FakeQueues` and `FakeObjectStore` against a _real_ Postgres and a _real_
+Redis, so the SQL and the rate limiter are genuinely exercised while nothing
+leaves the process.
 
 ---
 
@@ -190,6 +319,7 @@ genuinely exercised while nothing leaves the process.
 | Secure coding (validation, authN/authZ, OWASP)               | zod at every boundary, refresh-token reuse detection, IDOR tests, rate limits, log redaction         |
 | CI/CD, reading build reports                                 | `.github/workflows/ci.yml` — service containers, JUnit and coverage artifacts, image build           |
 | Docker and cloud service dependencies                        | `Dockerfile.dev` + Compose for development, multi-stage `Dockerfile` for production                  |
+| AWS (S3, SES) and SMTP                                       | `S3ObjectStore` (presigned URLs), `SesMailer`, Floci + Mailpit in Compose, integration tests in CI   |
 
 ---
 
