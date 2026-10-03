@@ -190,7 +190,15 @@ export async function main(): Promise<void> {
   if (config.ROLE === 'api' || config.ROLE === 'all') {
     const app = createApp(runtime.deps);
     httpServer = app.listen(config.PORT, () => {
-      logger.info({ port: config.PORT, role: config.ROLE, env: config.NODE_ENV }, 'API listening');
+      logger.info(
+        {
+          port: config.PORT,
+          role: config.ROLE,
+          env: config.NODE_ENV,
+          trustProxy: config.TRUST_PROXY,
+        },
+        'API listening',
+      );
     });
   }
 

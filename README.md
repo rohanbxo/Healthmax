@@ -290,6 +290,13 @@ leaves the process.
 
 ## Known limitations
 
+- **Rate limits behind a proxy.** The IP limits (login, register, forgot
+  password) key on `req.ip`, which Express reads from `X-Forwarded-For` only
+  through the hops `TRUST_PROXY` trusts — one in production by default. It has
+  to match the real number of proxies in front of the app: too few, and every
+  user shares the inner proxy's bucket; too many, and a client can write its
+  own IP into the header. The global 300/minute limit counts signed-in
+  requests per user.
 - **Free-tier sleeping.** On a host that sleeps idle instances, the dispatch
   tick stops with the process, and reminders are late by however long the
   instance was asleep. A pinger or a paid always-on instance is the fix.

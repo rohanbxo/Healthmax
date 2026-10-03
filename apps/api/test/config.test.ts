@@ -143,4 +143,38 @@ describe('config', () => {
       expect(problems.join('\n')).to.not.include(secret);
     });
   });
+  describe('TRUST_PROXY', () => {
+    it('trusts one hop in production and none elsewhere by default', () => {
+      expect(loadConfig({ ...BASE, NODE_ENV: 'production' }).TRUST_PROXY).to.equal(1);
+      expect(loadConfig({ ...BASE, NODE_ENV: 'development' }).TRUST_PROXY).to.equal(false);
+      expect(loadConfig({ ...BASE, NODE_ENV: 'test' }).TRUST_PROXY).to.equal(false);
+    });
+
+    it('reads a hop count, with 0 and false meaning none', () => {
+      expect(loadConfig({ ...BASE, TRUST_PROXY: '2' }).TRUST_PROXY).to.equal(2);
+      expect(
+        loadConfig({ ...BASE, NODE_ENV: 'production', TRUST_PROXY: '0' }).TRUST_PROXY,
+      ).to.equal(false);
+      expect(
+        loadConfig({ ...BASE, NODE_ENV: 'production', TRUST_PROXY: 'false' }).TRUST_PROXY,
+      ).to.equal(false);
+    });
+
+    it('reads a list of proxy addresses, subnets and presets', () => {
+      const config = loadConfig({ ...BASE, TRUST_PROXY: 'loopback, 10.0.0.0/8, 2001:db8::1' });
+      expect(config.TRUST_PROXY).to.deep.equal(['loopback', '10.0.0.0/8', '2001:db8::1']);
+    });
+
+    it('refuses true, which would let any client pick its IP', () => {
+      const problems = problemsFor({ TRUST_PROXY: 'true' });
+      expect(problems).to.have.length(1);
+      expect(problems[0]).to.match(/^TRUST_PROXY: must not be true/);
+    });
+
+    it('refuses anything that is not a count or an address list', () => {
+      for (const value of ['yes', '10.0.0.0/33', '10.0.0.1,', 'proxy.internal', '-1']) {
+        expect(problemsFor({ TRUST_PROXY: value }), value).to.have.length(1);
+      }
+    });
+  });
 });

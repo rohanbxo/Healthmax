@@ -10,6 +10,10 @@ import { ipKeyGenerator, rateLimit, type RateLimitRequestHandler } from 'express
 import { RedisStore, type RedisReply } from 'rate-limit-redis';
 import type { Redis } from 'ioredis';
 import type { Request, RequestHandler } from 'express';
+import type { Config } from '../config';
+import type { Clock } from '../lib/clock';
+import { verifyAccessToken } from '../lib/accessToken';
+import { bearerToken } from './authenticate';
 import { rateLimited } from './errors';
 
 export type RateLimiterOptions = {
@@ -54,16 +58,45 @@ export function createRateLimiter(
 
 export const GLOBAL_RATE_LIMIT = { windowMs: 60_000, limit: 300 } as const;
 
+export type GlobalRateLimitDeps = {
+  redis: Redis;
+  config: Pick<Config, 'JWT_SECRET'>;
+  clock: Clock;
+  /** Paths left out of the count, e.g. the public liveness probe. */
+  exemptPaths?: readonly string[];
+};
+
 /**
- * 300 requests per minute per user (per IP when unauthenticated).
- * `exemptPaths` keeps the public liveness probe out of the counter.
+ * The global limiter runs before any route has authenticated the request, so
+ * `req.userId` is never set yet. Verifying the bearer token here (an HMAC, no
+ * database) is what makes it "per user" as SPEC.md §9 says, instead of per IP
+ * — otherwise everyone behind one NAT or one mis-trusted proxy would share 300
+ * requests a minute. A missing, expired or forged token counts against the IP,
+ * so a bad token can never buy a fresh bucket.
  */
-export function globalRateLimit(redis: Redis, exemptPaths: readonly string[] = []): RequestHandler {
-  const exempt = new Set(exemptPaths);
-  return createRateLimiter(redis, {
+export function globalRateLimitKey(deps: Pick<GlobalRateLimitDeps, 'config' | 'clock'>) {
+  return (req: Request): string => {
+    const token = bearerToken(req);
+    if (token !== undefined) {
+      const result = verifyAccessToken({
+        token,
+        secret: deps.config.JWT_SECRET,
+        nowMs: deps.clock.now(),
+      });
+      if (result.ok) return `u:${result.claims.sub}`;
+    }
+    return userOrIpKey(req);
+  };
+}
+
+/** 300 requests per minute per user, per IP when unauthenticated. */
+export function globalRateLimit(deps: GlobalRateLimitDeps): RequestHandler {
+  const exempt = new Set(deps.exemptPaths ?? []);
+  return createRateLimiter(deps.redis, {
     prefix: 'global',
     windowMs: GLOBAL_RATE_LIMIT.windowMs,
     limit: GLOBAL_RATE_LIMIT.limit,
+    keyGenerator: globalRateLimitKey(deps),
     skip: (req) => exempt.has(req.path),
   });
 }
