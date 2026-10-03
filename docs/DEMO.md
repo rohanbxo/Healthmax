@@ -1,7 +1,9 @@
 # Interview demo: local AWS with Floci
 
-A live walkthrough of Beta's cloud features (SES email and S3 cloud export)
-running against Floci, the local AWS emulator. Target: **under 5 minutes**.
+A live walkthrough of Beta's cloud features (SES email and S3 cloud export),
+which are developed and tested against AWS APIs emulated locally by Floci.
+Beta is not deployed on AWS and there is no AWS account; moving to AWS is a
+documented plan. Target: **under 5 minutes**.
 The design is in [README "Local AWS with Floci"](../README.md#local-aws-with-floci)
 and the original spec in [`specs/floci.md`](specs/floci.md).
 
@@ -27,13 +29,28 @@ docker compose ps --all
 All long-running services show `(healthy)`; `core-build`, `migrate` and
 `aws-init` show `Exited (0)`.
 
-**2. Set up the demo terminal.** Floci accepts any credentials, and the host has
-no AWS profile. If the AWS CLI is not installed, the function runs the same
-pinned CLI image Compose uses.
+**2. Check the terminal tools.** The demo uses the AWS CLI v2 with a `floci`
+profile, which points at `http://localhost:4566` with Floci's dummy `test`/`test`
+credentials, plus `jq`. One-time setup, if the profile is missing:
 
 ```bash
-export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1
-command -v aws >/dev/null || aws() { docker run --rm -i --network host -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION amazon/aws-cli:2.37.9 "$@"; }
+aws configure set aws_access_key_id test --profile floci
+aws configure set aws_secret_access_key test --profile floci
+aws configure set region us-east-1 --profile floci
+aws configure set endpoint_url http://localhost:4566 --profile floci
+```
+
+Then check that it reaches Floci (it lists `beta-exports`):
+
+```bash
+aws --profile floci s3 ls
+```
+
+_Backup only_, for a machine without the AWS CLI or `jq`: these run the same
+pinned CLI image Compose uses, reading the same `floci` profile.
+
+```bash
+command -v aws >/dev/null || aws() { MSYS_NO_PATHCONV=1 docker run --rm -i --network host -v "$(cygpath -m "$HOME/.aws" 2>/dev/null || echo "$HOME/.aws"):/root/.aws:ro" amazon/aws-cli:2.37.9 "$@"; }
 command -v jq >/dev/null || jq() { python -m json.tool; }
 ```
 
@@ -65,10 +82,9 @@ curl -s -X DELETE http://localhost:8025/api/v1/messages -o /dev/null
 2. http://localhost:8025 (Mailpit)
 3. http://localhost:5173/api/docs (Swagger)
 
-**6. Check the sender.** The sender is `EMAIL_FROM` from your root `.env`. If it
-still says `onboarding@resend.dev`, emails in an SES demo will look like they
-come from Resend. Set `EMAIL_FROM=Beta <no-reply@beta.test>` in `.env` (or delete
-the line) and restart with `pnpm dev`.
+**6. Check the sender.** The sender is `EMAIL_FROM` from your root `.env`, and
+it should be `Beta <noreply@beta.local>`. If it names a Resend address, emails in
+an SES demo look like they came from Resend: fix it and run `pnpm dev` again.
 
 > Don't restart Floci between steps 3 and 4 of the demo. Its state is
 > disposable: a restart empties the bucket.
@@ -77,7 +93,7 @@ the line) and restart with `pnpm dev`.
 
 ## The demo (~4½ minutes)
 
-### 1. One command, real AWS APIs (30 s)
+### 1. One command, AWS APIs on a laptop (30 s)
 
 **Do:**
 
@@ -88,9 +104,10 @@ docker compose ps --all
 **They see:** Postgres, Redis, the API, the worker, the web app, **Floci** and
 **Mailpit**, all healthy; `aws-init` exited 0.
 
-**Say:** "`pnpm dev` brings up the whole stack, including real AWS S3 and SES
-APIs emulated by Floci. A one-shot AWS CLI container creates the bucket and
-verifies the sender, so a clean checkout needs no AWS account and no setup."
+**Say:** "`pnpm dev` brings up the whole stack, including the S3 and SES APIs
+emulated locally by Floci, so I build and test against the same APIs and SDK
+I'd use on AWS, with no account. A one-shot AWS CLI container creates the bucket
+and verifies the sender, so a clean checkout needs no setup."
 
 ### 2. Forgot password → SES → inbox (60 s)
 
@@ -131,7 +148,7 @@ host. Signing is pure local crypto, with no network call."
 **Do:**
 
 ```bash
-aws --endpoint-url http://localhost:4566 s3 ls s3://beta-exports --recursive
+aws --profile floci s3 ls s3://beta-exports --recursive
 ```
 
 **They see:** `exports/<userId>/<timestamp>-<uuid>.json`.
@@ -145,7 +162,7 @@ exports after a day."
 **Do:**
 
 ```bash
-KEY=$(aws --endpoint-url http://localhost:4566 s3 ls s3://beta-exports --recursive | sort | tail -1 | awk '{print $4}')
+KEY=$(aws --profile floci s3 ls s3://beta-exports --recursive | sort | tail -1 | awk '{print $4}')
 curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:4566/beta-exports/$KEY"
 ```
 
@@ -153,8 +170,8 @@ curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:4566/beta-exports/$KE
 
 **Say:** "Floci doesn't check signatures by default. Until I turned that on,
 this unsigned request returned the file despite the public access block. Now
-local S3 refuses it like real S3 does, and CI has an integration test that
-proves a tampered link is rejected."
+local S3 refuses it the way S3 is documented to, and CI has an integration
+test that proves a tampered link is rejected."
 
 ### 6. The contract (30 s)
 
@@ -166,17 +183,19 @@ proves a tampered link is rejected."
 requests. It's limited to 5 per user per hour, and without a bucket it answers
 404 'not configured', the same pattern push uses."
 
-### 7. Production is only env vars (20 s)
+### 7. The plan for real AWS (20 s)
 
-**Do:** show the "Moving to real AWS" table in the README (or the AWS block of
+**Do:** show "Moving to real AWS: the plan" in the README (or the AWS block of
 `x-api-env` in `docker-compose.yml`).
 
-**They see:** the endpoint and key variables set locally and unset in
-production.
+**They see:** the endpoint and key variables set for Floci, and the plan's
+column where they'd be unset.
 
-**Say:** "Unset `AWS_ENDPOINT_URL` and the keys, and the same code talks to
-real AWS through an IAM role. The role needs `s3:PutObject` and `s3:GetObject`
-on `exports/*`, plus `ses:SendEmail`."
+**Say:** "To be clear, this has only ever run against Floci; there's no AWS
+account. But it's built so moving is configuration, not code: unset
+`AWS_ENDPOINT_URL` and the keys, and the SDK would use the regional endpoints
+and an IAM role. I've written down the minimal policy that role would need:
+`s3:PutObject` and `s3:GetObject` on `exports/*`, plus `ses:SendEmail`."
 
 ---
 
@@ -192,7 +211,8 @@ on `exports/*`, plus `ses:SendEmail`."
 | "Cloud export is not configured."                                                            | `S3_EXPORT_BUCKET` is unset: check `.env` doesn't blank it, then `pnpm dev`                                                                                              |
 | Download link returns `403` or `404` in the browser                                          | It expired (15 minutes), or Floci restarted and lost the object: press **Save export to cloud** again                                                                    |
 | `s3 ls` is empty                                                                             | Floci restarted (state is disposable). Do step 3 again, then step 4                                                                                                      |
-| `aws: command not found` / `jq: command not found`                                           | Re-run the prep step 2 lines in this terminal                                                                                                                            |
+| `The config profile (floci) could not be found`                                              | Run the four `aws configure set … --profile floci` lines from prep step 2                                                                                                |
+| `aws: command not found` / `jq: command not found`                                           | Open a new terminal (the installers update `PATH`), or define the backup functions from prep step 2                                                                      |
 | Port already in use on `pnpm dev`                                                            | Something else holds 4566, 8025, 5173 or 4000: `docker ps` and stop it                                                                                                   |
 
 If the browser part fails outright, steps 2–5 also work from the terminal. The
