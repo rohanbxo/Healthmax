@@ -76,9 +76,18 @@ async function openYear(
   return screen.findByRole('grid', { name: 'Last 53 weeks' });
 }
 
-/** The focusable button inside a Year cell: what carries the state and the keys. */
+/**
+ * The focusable button inside a Year cell: what carries the state and the keys.
+ *
+ * Found by its `aria-label` — which is its accessible name — rather than by
+ * role. `getByRole` resolves the implicit role of every node in the grid on
+ * each call (~800 of them across 53 weeks), which made this helper most of the
+ * keyboard test's runtime and pushed it past the timeout under coverage. The
+ * role structure itself is asserted once, in "exposes every Year cell as a
+ * gridcell wrapping a button".
+ */
 const dayButton = (grid: HTMLElement, name: string): HTMLElement =>
-  within(grid).getByRole('button', { name });
+  within(grid).getByLabelText(name, { selector: 'button' });
 
 const dayOf = (element: HTMLElement | undefined): string =>
   (element?.querySelector('button') ?? element)?.getAttribute('data-day') ?? '';
@@ -392,7 +401,7 @@ describe('Calendar', () => {
       const today = dayButton(grid, 'THU · 17 SEP: 0 of 1 done');
       expect(today).toHaveAttribute('tabindex', '0');
       expect(dayButton(grid, 'MON · 14 SEP: 2 of 2 done')).toHaveAttribute('tabindex', '-1');
-      expect(within(grid).getAllByRole('button').filter(isTabbable)).toHaveLength(1);
+      expect([...grid.querySelectorAll<HTMLElement>('button')].filter(isTabbable)).toHaveLength(1);
 
       today.focus();
       expect(today).toHaveFocus();
