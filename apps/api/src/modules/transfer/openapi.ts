@@ -3,10 +3,11 @@
  * `routes.ts`.
  */
 import { z } from 'zod';
-import { exportDtoSchema, importBodySchema } from '@beta/core';
+import { exportDtoSchema, importBodySchema, instantSchema } from '@beta/core';
 
 import { apiRegistry } from '../../http/openapi';
 import { UNAUTHENTICATED_RESPONSE, errorResponse, security } from '../habits/openapi';
+import { CLOUD_EXPORT_RATE_LIMIT } from './rateLimits';
 
 const importReportSchema = z.object({
   habits: z.number().int().min(0),
@@ -28,6 +29,34 @@ apiRegistry.registerPath({
       content: { 'application/json': { schema: exportDtoSchema } },
     },
     401: UNAUTHENTICATED_RESPONSE,
+  },
+});
+
+const cloudExportSchema = z.object({
+  url: z.url().meta({ description: 'Presigned GET to the stored file. Needs no token.' }),
+  expiresAt: instantSchema.meta({ description: 'When `url` stops working.' }),
+  key: z.string().meta({ example: 'exports/<userId>/2026-09-17T06:00:00.000Z-<uuid>.json' }),
+});
+
+apiRegistry.registerPath({
+  method: 'post',
+  path: '/api/export/cloud',
+  summary: 'Save an export to cloud storage and get a download link',
+  description:
+    'Writes the same file `GET /export` serves to the export bucket (encrypted at rest) and answers with a ' +
+    'presigned link to it. The link points at the bucket directly, not at this API, carries no token, and works ' +
+    'for `EXPORT_URL_TTL_SECONDS` (15 minutes by default) — anyone holding it until then can download the file. ' +
+    `Rate limited to ${CLOUD_EXPORT_RATE_LIMIT.limit} per hour per user.`,
+  tags: ['transfer'],
+  security,
+  responses: {
+    201: {
+      description: 'Stored; the link is ready.',
+      content: { 'application/json': { schema: cloudExportSchema } },
+    },
+    401: UNAUTHENTICATED_RESPONSE,
+    404: errorResponse('Cloud export is not configured.'),
+    429: errorResponse('Too many cloud exports.'),
   },
 });
 

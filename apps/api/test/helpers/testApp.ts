@@ -4,7 +4,7 @@
  * Real Postgres (`DATABASE_URL_TEST`) and real Redis (logical database
  * {@link REDIS_TEST_DB}) so the SQL and the Redis-backed rate limiter are
  * genuinely exercised; everything with a side effect outside the process —
- * clock, email, push, queues — is a fake the test can inspect.
+ * clock, email, push, queues, object storage — is a fake the test can inspect.
  */
 import { Redis } from 'ioredis';
 import { PrismaClient } from '@prisma/client';
@@ -17,6 +17,7 @@ import { createLogger } from '../../src/http/logger';
 import { FixedClock } from '../../src/lib/clock';
 import { FakeMailer } from '../../src/lib/mailer';
 import { FakePushSender } from '../../src/lib/pushSender';
+import { FakeObjectStore } from '../../src/lib/objectStore';
 import { RecordingEventBus } from '../../src/events/bus';
 import { FakeQueues } from '../../src/jobs/queues';
 import { loadTestEnv, requireEnv, REDIS_TEST_DB } from './env';
@@ -38,6 +39,7 @@ export type TestHarness = {
   clock: FixedClock;
   mailer: FakeMailer;
   pushSender: FakePushSender;
+  objectStore: FakeObjectStore;
   queues: FakeQueues;
   eventBus: RecordingEventBus;
   /** Empties Postgres and Redis and clears every fake. */
@@ -84,6 +86,7 @@ export async function getTestHarness(): Promise<TestHarness> {
   const clock = new FixedClock(TEST_NOW_MS);
   const mailer = new FakeMailer();
   const pushSender = new FakePushSender();
+  const objectStore = new FakeObjectStore();
   const queues = new FakeQueues();
   const eventBus = new RecordingEventBus();
 
@@ -95,6 +98,7 @@ export async function getTestHarness(): Promise<TestHarness> {
     eventBus,
     mailer,
     pushSender,
+    objectStore,
     config,
     logger,
   };
@@ -110,6 +114,7 @@ export async function getTestHarness(): Promise<TestHarness> {
     clock,
     mailer,
     pushSender,
+    objectStore,
     queues,
     eventBus,
     async reset() {
@@ -118,6 +123,7 @@ export async function getTestHarness(): Promise<TestHarness> {
       clock.set(TEST_NOW_MS);
       mailer.reset();
       pushSender.reset();
+      objectStore.reset();
       queues.reset();
       eventBus.reset();
     },

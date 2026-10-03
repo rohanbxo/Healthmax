@@ -5,10 +5,14 @@
  * happen: an import replaces everything in the account, and deleting takes the
  * password, so a stolen access token alone cannot destroy someone's history
  * (SPEC.md §9).
+ *
+ * A cloud export leaves the file in the server's bucket and shows a
+ * short-lived download link instead; a server without a bucket says so once
+ * and the button stays off.
  */
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { type ImportBody, importBodySchema } from '@beta/core';
+import { type ImportBody, formatTime, importBodySchema, parseInstant } from '@beta/core';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,7 +25,14 @@ import {
   SectionLabel,
   useToast,
 } from '@/components/ui';
-import { useDeleteAccount, useExport, useImport } from '@/api/hooks';
+import {
+  type CloudExportDTO,
+  useCloudExport,
+  useDeleteAccount,
+  useExport,
+  useImport,
+  useMe,
+} from '@/api/hooks';
 import { useAuth } from '@/auth/AuthProvider';
 import { LOGIN_PATH } from '@/auth/RequireAuth';
 
@@ -54,6 +65,8 @@ function downloadJson(filename: string, data: unknown): void {
 
 export function DataSettings(): React.ReactElement {
   const exportData = useExport();
+  const cloudExport = useCloudExport();
+  const { data: me } = useMe();
   const importData = useImport();
   const deleteAccount = useDeleteAccount();
   const { signOut } = useAuth();
@@ -65,6 +78,27 @@ export function DataSettings(): React.ReactElement {
   const [password, setPassword] = React.useState('');
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const [cloudLink, setCloudLink] = React.useState<CloudExportDTO | null>(null);
+  const [cloudUnavailable, setCloudUnavailable] = React.useState(false);
+
+  function handleCloudExport(): void {
+    cloudExport.mutate(undefined, {
+      onSuccess: (link) => setCloudLink(link),
+      onError: (error) => {
+        // Only a server without a bucket answers 404 here; asking again cannot help.
+        if (error.code === 'NOT_FOUND') {
+          setCloudLink(null);
+          setCloudUnavailable(true);
+          return;
+        }
+        toast({
+          title: 'We could not save your export to the cloud.',
+          description: error.message,
+          variant: 'error',
+        });
+      },
+    });
+  }
 
   function handleExport(): void {
     exportData.mutate(undefined, {
@@ -136,6 +170,38 @@ export function DataSettings(): React.ReactElement {
       <Button variant="outline" fullWidth loading={exportData.isPending} onClick={handleExport}>
         Export my data
       </Button>
+
+      <Button
+        variant="outline"
+        fullWidth
+        disabled={cloudUnavailable}
+        loading={cloudExport.isPending}
+        onClick={handleCloudExport}
+      >
+        Save export to cloud
+      </Button>
+
+      {cloudUnavailable ? (
+        <p role="status" className="text-sm text-muted">
+          Cloud export is not configured.
+        </p>
+      ) : null}
+
+      {cloudLink === null ? null : (
+        <p role="status" className="flex items-baseline justify-between gap-3 text-sm">
+          <a
+            href={cloudLink.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium underline underline-offset-2"
+          >
+            Download link
+          </a>
+          <span className="font-mono text-muted">
+            {`Link expires at ${formatTime(parseInstant(cloudLink.expiresAt), me?.timeZone ?? 'UTC')}`}
+          </span>
+        </p>
+      )}
 
       <input
         ref={fileInput}

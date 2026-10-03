@@ -81,6 +81,24 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # The same local AWS emulator Compose runs, so the S3 and SES adapters
+      # are tested against real AWS APIs rather than only against fakes.
+      floci:
+        image: floci/floci:2.1.0
+        # As in Compose: check signatures, so the integration test proves a
+        # tampered presigned link is refused.
+        env:
+          FLOCI_AUTH_VALIDATE_SIGNATURES: 'true'
+          FLOCI_SERVICES_S3_ENFORCE_AUTH: 'true'
+        ports:
+          - 4566:4566
+        # The image has neither curl nor wget; its own probe GETs
+        # /_floci/health over bash's /dev/tcp.
+        options: >-
+          --health-cmd "/usr/local/bin/healthcheck.sh"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       NODE_ENV: test
       ROLE: api
@@ -96,6 +114,20 @@ jobs:
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-only-secret-at-least-32-characters-long
       LOG_LEVEL: silent
+      # Turns on `test/floci.integration.test.ts`, which is skipped everywhere
+      # else so a plain `pnpm check` never needs the emulator running.
+      FLOCI_TESTS: '1'
+      AWS_ENDPOINT_URL: http://localhost:4566
+      AWS_REGION: us-east-1
+      # Floci's dummy credentials, not secrets: the emulator accepts any pair,
+      # and these are the same `test`/`test` Compose uses.
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      S3_EXPORT_BUCKET: beta-exports
+      # Read by the init script (the SES identity it verifies) and by the
+      # integration test (the sender it uses). The rest of the suite still
+      # resolves EMAIL_PROVIDER to `none` and sends through `FakeMailer`.
+      EMAIL_FROM: Beta <no-reply@beta.test>
     steps:
       - uses: actions/checkout@v4
       # No version pin here: the action reads packageManager from package.json,
@@ -107,9 +139,29 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @beta/core build
+      # The bucket and the SES sender identity have to exist before the
+      # integration test runs. This is the same script, in the same AWS CLI
+      # image, that Compose's `aws-init` runs, so CI also proves the script
+      # works. `--network host` lets it reach the service container on
+      # localhost:4566; the script has no endpoint of its own and relies on
+      # the CLI honouring AWS_ENDPOINT_URL.
+      - name: Create the bucket and SES identity in Floci
+        run: >-
+          docker run --rm --network host
+          -v "$PWD/scripts:/scripts:ro"
+          -e AWS_ENDPOINT_URL
+          -e AWS_ACCESS_KEY_ID
+          -e AWS_SECRET_ACCESS_KEY
+          -e AWS_DEFAULT_REGION=us-east-1
+          -e S3_EXPORT_BUCKET
+          -e EMAIL_FROM
+          --entrypoint bash
+          amazon/aws-cli:2.37.9 /scripts/floci-init.sh
       # No explicit migrate step: `pretest:ci` runs the same preparation the
       # developer's `pnpm --filter @beta/api test` runs, so CI exercises that
       # path — including the guard above — instead of working around it.
+      # No separate Floci run either: `test:ci` globs `test/**/*.test.ts`, so
+      # the integration file runs here with everything else once FLOCI_TESTS=1.
       - run: pnpm --filter @beta/api test:ci
       - uses: actions/upload-artifact@v4
         if: always()

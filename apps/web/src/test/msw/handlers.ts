@@ -493,6 +493,23 @@ export const handlers = [
     return HttpResponse.json(mswState.exportFile);
   }),
 
+  /** Fifteen minutes after the fixed test clock (`src/test/clock.ts`). */
+  http.post('/api/export/cloud', ({ request }) => {
+    const denied = requireBearer(request);
+    if (denied) return denied;
+
+    record(request, null);
+    const key = 'exports/u1/2026-09-17T03:12:00.000Z-abc.json';
+    return HttpResponse.json(
+      {
+        url: `https://example.test/beta-exports/${key}?X-Amz-Signature=x`,
+        expiresAt: '2026-09-17T03:27:00.000Z',
+        key,
+      },
+      { status: 201 },
+    );
+  }),
+
   http.post('/api/import', async ({ request }) => {
     const denied = requireBearer(request);
     if (denied) return denied;

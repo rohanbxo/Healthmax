@@ -22,6 +22,9 @@
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
+    "@aws-sdk/client-s3": "3.1146.0",
+    "@aws-sdk/client-sesv2": "3.1146.0",
+    "@aws-sdk/s3-request-presigner": "3.1146.0",
     "@beta/core": "workspace:*",
     "@node-rs/argon2": "^2.2.1",
     "@prisma/client": "^6.19.3",
