@@ -100,6 +100,71 @@ services:
         condition: service_healthy
     restart: 'no'
 
+  # Catches every email Floci's SES sends; read them at http://localhost:8025.
+  # SMTP (1025) is only for Floci, so it stays on the compose network.
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    restart: unless-stopped
+    ports:
+      - '8025:8025'
+    # The image's own healthcheck (`/mailpit readyz`), restated so the
+    # dependency below does not hinge on an upstream default.
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Local AWS (S3 and SES) on one endpoint, :4566. Pinned, so an upstream
+  # release cannot change the emulator's behaviour underneath us. SES relays
+  # every message over SMTP to Mailpit as well as capturing it at /_aws/ses.
+  floci:
+    image: floci/floci:2.1.0
+    restart: unless-stopped
+    environment:
+      FLOCI_SERVICES_SES_SMTP_HOST: mailpit
+      FLOCI_SERVICES_SES_SMTP_PORT: '1025'
+      FLOCI_SERVICES_SES_SMTP_STARTTLS: DISABLED
+      # Off by default in Floci: without these, an unsigned or tampered GET of
+      # an export succeeds despite the bucket's public access block. On, a
+      # presigned link behaves as it does on real S3.
+      FLOCI_AUTH_VALIDATE_SIGNATURES: 'true'
+      FLOCI_SERVICES_S3_ENFORCE_AUTH: 'true'
+    ports:
+      - '4566:4566'
+    depends_on:
+      mailpit:
+        condition: service_healthy
+    healthcheck:
+      # The image's bundled probe: a bash /dev/tcp GET of /_floci/health. The
+      # base image (ubi9-micro) has neither curl nor wget.
+      test: ['CMD', '/usr/local/bin/healthcheck.sh']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  # One-shot: creates the export bucket and verifies the SES sender in Floci.
+  # Floci keeps no state worth keeping, so this runs on every `up` and is
+  # idempotent. CI runs the same script against its own Floci container.
+  aws-init:
+    image: amazon/aws-cli:2.37.9
+    entrypoint: ['bash', '/scripts/floci-init.sh']
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      # Read natively by AWS CLI v2, so the script never names an endpoint.
+      AWS_ENDPOINT_URL: http://floci:4566
+      S3_EXPORT_BUCKET: beta-exports
+      EMAIL_FROM: ${EMAIL_FROM:-Beta <no-reply@beta.test>}
+    volumes:
+      - ./scripts:/scripts:ro
+    depends_on:
+      floci:
+        condition: service_healthy
+    restart: 'no'
+
   api:
     build: *dev-build
     command: pnpm --filter @beta/api dev
@@ -119,6 +184,8 @@ services:
       migrate:
         condition: service_completed_successfully
       core-build:
+        condition: service_completed_successfully
+      aws-init:
         condition: service_completed_successfully
     healthcheck:
       test:
@@ -149,6 +216,8 @@ services:
       migrate:
         condition: service_completed_successfully
       core-build:
+        condition: service_completed_successfully
+      aws-init:
         condition: service_completed_successfully
     healthcheck:
       # No HTTP here, so check what the worker actually depends on.
