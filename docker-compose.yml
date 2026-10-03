@@ -36,8 +36,22 @@ x-api-env: &api-env
   VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
   VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
   VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+  # Email goes through Floci's SES into Mailpit unless `.env` picks another
+  # provider (EMAIL_PROVIDER=resend with RESEND_API_KEY to use Resend).
+  EMAIL_PROVIDER: ${EMAIL_PROVIDER:-ses}
   RESEND_API_KEY: ${RESEND_API_KEY:-}
-  EMAIL_FROM: ${EMAIL_FROM:-}
+  EMAIL_FROM: ${EMAIL_FROM:-Beta <no-reply@beta.test>}
+  # Local AWS is Floci. Its dummy credentials are not secrets: Floci accepts
+  # any. The API reaches it as `floci`, the browser as `localhost`, so
+  # presigned links are signed for the public endpoint.
+  # Must match aws-init: SES identities in Floci are per region.
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_ENDPOINT_URL: http://floci:4566
+  AWS_PUBLIC_ENDPOINT_URL: http://localhost:4566
+  S3_EXPORT_BUCKET: beta-exports
+  EXPORT_URL_TTL_SECONDS: ${EXPORT_URL_TTL_SECONDS:-900}
   DOCS_ENABLED: 'true'
   LOG_LEVEL: ${LOG_LEVEL:-info}
   # Bind mounts on Windows and macOS do not deliver inotify events.
