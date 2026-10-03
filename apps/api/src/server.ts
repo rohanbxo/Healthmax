@@ -14,19 +14,31 @@ import { createApp, type AppDeps } from './app';
 import { ConfigError, loadConfig, type Config } from './config';
 import { createLogger } from './http/logger';
 import { SystemClock } from './lib/clock';
+import { awsClientConfig } from './lib/aws';
 import { ResendMailer, type MailMessage, type Mailer } from './lib/mailer';
+import { SesMailer } from './lib/sesMailer';
 import { WebPushSender, type PushResult, type PushSender } from './lib/pushSender';
 import { InProcessEventBus } from './events/bus';
 import { BullQueues, queueConnection, type Queues } from './jobs/queues';
 import { startReminderWorkers, type ReminderWorkers } from './jobs/reminderWorkers';
 import { startEmailWorker, type EmailWorker } from './jobs/emailWorker';
 
-/** Email is configured from M10 (SPEC.md §14); until then, refuse loudly. */
+/**
+ * Chosen by `EMAIL_PROVIDER`; `loadConfig` has already checked that the chosen
+ * provider has what it needs. With none, refuse loudly.
+ */
 function createMailer(config: Config, logger: Logger): Mailer {
-  if (config.RESEND_API_KEY && config.EMAIL_FROM) {
+  if (config.EMAIL_PROVIDER === 'resend' && config.RESEND_API_KEY && config.EMAIL_FROM) {
     return new ResendMailer(config.RESEND_API_KEY, config.EMAIL_FROM);
   }
-  logger.warn('RESEND_API_KEY/EMAIL_FROM are not set — outbound email is disabled.');
+  if (config.EMAIL_PROVIDER === 'ses' && config.EMAIL_FROM) {
+    logger.info(
+      { region: config.AWS_REGION, endpoint: config.AWS_ENDPOINT_URL ?? 'aws' },
+      'Sending email through SES',
+    );
+    return new SesMailer(awsClientConfig(config), config.EMAIL_FROM);
+  }
+  logger.warn('EMAIL_PROVIDER is none — outbound email is disabled.');
   return {
     async send(msg: MailMessage): Promise<void> {
       throw new Error(`Email is not configured; refusing to send "${msg.subject}".`);
