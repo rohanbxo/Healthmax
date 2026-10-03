@@ -11,7 +11,10 @@ import { AppRoutes } from '@/routes';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { type FixedClock, FIXED_TIME_ZONE, installFixedClock } from '@/test/clock';
 import { installPushEnvironment, type FakePushEnvironment } from '@/test/pushEnvironment';
+import { http } from 'msw';
+import { server } from '@/test/msw/server';
 import {
+  apiError,
   mswState,
   recordedRequests,
   setMswExport,
@@ -103,6 +106,60 @@ describe('Settings', () => {
 
       await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
       expect(await screen.findByText('Export downloaded.')).toBeInTheDocument();
+    });
+  });
+
+  describe('cloud export', () => {
+    const cloudButton = () => screen.findByRole('button', { name: 'Save export to cloud' });
+
+    it('shows the download link and when it expires, in the account time zone', async () => {
+      const { user } = renderSettings();
+      await user.click(await cloudButton());
+
+      const link = await screen.findByRole('link', { name: 'Download link' });
+      expect(link).toHaveAttribute(
+        'href',
+        'https://example.test/beta-exports/exports/u1/2026-09-17T03:12:00.000Z-abc.json?X-Amz-Signature=x',
+      );
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+      // 03:27Z is 07:27 in Asia/Dubai.
+      expect(screen.getByText('Link expires at 07:27')).toBeInTheDocument();
+      expect(recordedRequests()).toContainEqual({
+        method: 'POST',
+        path: '/export/cloud',
+        body: null,
+      });
+    });
+
+    it('says so and turns the button off when the server has no bucket', async () => {
+      server.use(
+        http.post('/api/export/cloud', () =>
+          apiError('NOT_FOUND', 'Cloud export is not configured.'),
+        ),
+      );
+      const { user } = renderSettings();
+      await user.click(await cloudButton());
+
+      expect(await screen.findByText('Cloud export is not configured.')).toBeInTheDocument();
+      expect(await cloudButton()).toBeDisabled();
+      expect(screen.queryByRole('link', { name: 'Download link' })).not.toBeInTheDocument();
+    });
+
+    it('passes on the rate-limit message and leaves the button on', async () => {
+      server.use(
+        http.post('/api/export/cloud', () =>
+          apiError('RATE_LIMITED', 'Too many requests. Try again later.'),
+        ),
+      );
+      const { user } = renderSettings();
+      await user.click(await cloudButton());
+
+      expect(
+        await screen.findByText('We could not save your export to the cloud.'),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Too many requests. Try again later.')).toBeInTheDocument();
+      expect(await cloudButton()).toBeEnabled();
     });
   });
 

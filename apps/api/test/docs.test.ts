@@ -28,6 +28,17 @@ describe('/api/docs', () => {
     expect(docsEnabled({ NODE_ENV: 'development', DOCS_ENABLED: false })).to.equal(true);
   });
 
+  it('documents cloud export', async () => {
+    const res = await request(harness().app).get('/api/docs.json').expect(200);
+
+    const cloud = res.body.paths?.['/api/export/cloud']?.post;
+    expect(cloud, 'POST /api/export/cloud').to.be.an('object');
+    expect(Object.keys(cloud.responses).sort()).to.deep.equal(['201', '401', '404', '429']);
+    expect(cloud.responses['404'].description).to.equal('Cloud export is not configured.');
+    // The download itself stays where it was.
+    expect(res.body.paths?.['/api/export']?.get).to.be.an('object');
+  });
+
   it('documents the health response schema', () => {
     const document = buildOpenApiDocument({ APP_URL: 'http://localhost:5173' });
     const health = document.paths?.['/api/health']?.get;
