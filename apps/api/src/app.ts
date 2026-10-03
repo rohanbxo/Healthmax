@@ -127,8 +127,10 @@ export function createApp(deps: AppDeps): Express {
   const app = express();
 
   app.disable('x-powered-by');
-  // Behind one proxy in production (same-origin deploy, SPEC.md §13).
-  app.set('trust proxy', deps.config.NODE_ENV === 'production' ? 1 : false);
+  // Which hops may report the client IP through `X-Forwarded-For`, and so
+  // what `req.ip` — the key of every IP rate limit — is. One hop in
+  // production by default (SPEC.md §13); see `parseTrustProxy` in config.ts.
+  app.set('trust proxy', deps.config.TRUST_PROXY);
 
   app.use(requestId());
   app.use(httpLogger(deps.logger));
@@ -142,7 +144,14 @@ export function createApp(deps: AppDeps): Express {
   );
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
   app.use(cookieParser());
-  app.use(globalRateLimit(deps.redis, [`${API_BASE_PATH}${HEALTH_PATH}`]));
+  app.use(
+    globalRateLimit({
+      redis: deps.redis,
+      config: deps.config,
+      clock: deps.clock,
+      exemptPaths: [`${API_BASE_PATH}${HEALTH_PATH}`],
+    }),
+  );
 
   const api = express.Router();
   api.use(createHealthRouter({ prisma: deps.prisma, redis: deps.redis, clock: deps.clock }));
