@@ -32,7 +32,7 @@ flowchart TB
     Push["Web Push (VAPID)"]
     Mail["Resend"]
 
-    subgraph AWS["AWS — Floci on :4566 locally, real AWS in production"]
+    subgraph AWS["AWS APIs — emulated by Floci on :4566"]
         S3[("S3<br/>beta-exports")]
         SES["SES v2"]
     end
@@ -116,12 +116,14 @@ export work out of the box under Compose, against Floci (below).
 
 ## Local AWS with Floci
 
-Password-reset email goes through Amazon SES and cloud export through S3, and
-locally both run against [Floci](https://floci.io), an AWS emulator on one
-endpoint, `http://localhost:4566`. The code calls the real AWS SDK v3 clients
-against the real AWS APIs; it is free, works offline and needs no AWS account.
-Production is the same code with different environment variables — no branch
-says "if local".
+Password-reset email goes through the Amazon SES API and cloud export through
+the S3 API, and both are developed and tested against those APIs emulated
+locally by [Floci](https://floci.io) on one endpoint, `http://localhost:4566`.
+The code uses the official AWS SDK v3 clients; it is free, works offline and
+needs no AWS account. **Beta is not deployed on AWS and there is no AWS
+account.** Targeting real AWS is a documented plan
+([below](#moving-to-real-aws-the-plan)): the same code with different
+environment variables — no branch says "if local".
 
 Compose wires it up: `floci` is the emulator, `aws-init` is a one-shot AWS CLI
 container that runs `scripts/floci-init.sh` (idempotent) to create the
@@ -136,8 +138,8 @@ from empty, and `aws-init` recreates the bucket.
 | `EMAIL_PROVIDER`                              | `none` (`ses` under Compose)        | `resend` \| `ses` \| `none`. Unset with `RESEND_API_KEY` set means `resend`, as before.    |
 | `EMAIL_FROM`                                  | unset (`Beta <no-reply@beta.test>`) | Sender; required by `resend` and `ses`, and startup fails with a clear message without it. |
 | `AWS_REGION`                                  | `us-east-1`                         |                                                                                            |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | unset (`test`/`test` locally)       | Unset means the SDK's default credential chain (an IAM role). Never logged.                |
-| `AWS_ENDPOINT_URL`                            | unset (`http://floci:4566`)         | Where the API and worker reach AWS. Unset means real AWS.                                  |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | unset (`test`/`test` locally)       | Unset would mean the SDK's default credential chain (an IAM role). Never logged.           |
+| `AWS_ENDPOINT_URL`                            | unset (`http://floci:4566`)         | Where the API and worker reach AWS. Unset would mean real AWS.                             |
 | `AWS_PUBLIC_ENDPOINT_URL`                     | unset (`http://localhost:4566`)     | Only for signing URLs the browser opens — the browser cannot resolve `floci`.              |
 | `S3_EXPORT_BUCKET`                            | unset (`beta-exports`)              | Unset turns cloud export off; `POST /api/export/cloud` then answers 404.                   |
 | `EXPORT_URL_TTL_SECONDS`                      | `900`                               | Lifetime of the presigned download URL.                                                    |
@@ -150,8 +152,8 @@ the browser can only reach `http://localhost:4566`. A SigV4 presigned URL signs
 the host, so rewriting `floci` to `localhost` afterwards would break the
 signature. `S3ObjectStore` uploads with one client and presigns with a second
 one configured with `AWS_PUBLIC_ENDPOINT_URL`. Presigning is local crypto, not a
-network call. On real AWS both are unset and both clients use the regional
-endpoint.
+network call. On real AWS both would be unset and both clients would use the
+regional endpoint.
 
 ### Demo
 
@@ -178,7 +180,10 @@ sends through `SesMailer` and finds the message at `/_aws/ses`. It only runs
 with `FLOCI_TESTS=1`; locally, `FLOCI_TESTS=1 pnpm --filter @beta/api test`
 with `pnpm dev` up.
 
-### Moving to real AWS
+### Moving to real AWS: the plan
+
+Not done — Beta runs only against Floci. This is what would change, with no
+code changes, if it moved to an AWS account:
 
 | Variable                                      | Local (Compose)             | Real AWS                                                   |
 | --------------------------------------------- | --------------------------- | ---------------------------------------------------------- |
@@ -190,7 +195,7 @@ with `pnpm dev` up.
 | `EMAIL_PROVIDER`                              | `ses`                       | `ses`                                                      |
 | `EMAIL_FROM`                                  | `Beta <no-reply@beta.test>` | an identity verified in SES                                |
 
-The role needs no more than this:
+The IAM role would need no more than this:
 
 ```json
 {
@@ -211,10 +216,10 @@ The role needs no more than this:
 ```
 
 `s3:GetObject` is there because a presigned URL carries the signer's
-permissions. Two things the init script does locally are a one-off job for IaC
-or the console in a real account: the bucket's public access block and its
+permissions. Two things the init script does locally would be a one-off job for
+IaC or the console in a real account: the bucket's public access block and its
 one-day lifecycle rule on `exports/`. And real SES starts in sandbox mode, where
-it only delivers to verified recipients until you request production access.
+it only delivers to verified recipients until production access is granted.
 
 ---
 
@@ -326,7 +331,7 @@ leaves the process.
 | Secure coding (validation, authN/authZ, OWASP)               | zod at every boundary, refresh-token reuse detection, IDOR tests, rate limits, log redaction         |
 | CI/CD, reading build reports                                 | `.github/workflows/ci.yml` — service containers, JUnit and coverage artifacts, image build           |
 | Docker and cloud service dependencies                        | `Dockerfile.dev` + Compose for development, multi-stage `Dockerfile` for production                  |
-| AWS (S3, SES) and SMTP                                       | `S3ObjectStore` (presigned URLs), `SesMailer`, Floci + Mailpit in Compose, integration tests in CI   |
+| AWS APIs (S3, SES) and SMTP, emulated locally                | `S3ObjectStore` (presigned URLs), `SesMailer`, Floci + Mailpit in Compose, integration tests in CI   |
 
 ---
 
