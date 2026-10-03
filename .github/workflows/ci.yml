@@ -1,8 +1,14 @@
 name: CI
 
+# Pushes to main, plus every pull request. Pushing to a PR branch used to
+# start two runs of the same commit (`push` and `pull_request`); they sat in
+# different concurrency groups (refs/heads/<branch> vs refs/pull/<n>/merge),
+# so neither cancelled the other, and both wrote the same layers to the
+# shared Actions cache at once — which is how PR #4's image build lost a
+# write race. A branch without a PR gets no CI until one is opened.
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
 
 concurrency:
